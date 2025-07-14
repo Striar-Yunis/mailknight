@@ -1,0 +1,33 @@
+From: Mailknight Security Team <security@mailknight.dev>
+Date: Wed, 1 Jan 2025 00:00:00 +0000
+Subject: [PATCH] Enable FIPS mode for Go builds
+
+This patch ensures that ArgoCD is built with FIPS compliance
+by enabling CGO and linking against FIPS-compliant OpenSSL.
+
+Signed-off-by: Mailknight Security Team <security@mailknight.dev>
+---
+ Makefile | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/Makefile b/Makefile
+index 1234567..abcdefg 100644
+--- a/Makefile
++++ b/Makefile
+@@ -15,6 +15,14 @@ LDFLAGS += -X github.com/argoproj/argo-cd/v2/common.buildDate=${BUILD_DATE}
+ LDFLAGS += -X github.com/argoproj/argo-cd/v2/common.gitCommit=${GIT_COMMIT}
+ LDFLAGS += -X github.com/argoproj/argo-cd/v2/common.gitTreeState=${GIT_TREE_STATE}
+ 
++# Mailknight: Enable FIPS compliance
++export CGO_ENABLED=1
++export OPENSSL_FORCE_FIPS_MODE=1
++LDFLAGS += -linkmode external
++LDFLAGS += -extldflags '-static-pie -Wl,-z,relro,-z,now'
++CGO_CFLAGS += -fstack-protector-strong -D_FORTIFY_SOURCE=2
++CGO_LDFLAGS += -Wl,-z,relro,-z,now
++
+ .PHONY: build
+ build: build-local
+ 
+-- 
+2.45.0

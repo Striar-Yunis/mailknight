@@ -1,0 +1,84 @@
+# Build artifacts
+build/
+images/
+source/
+releases/
+scan-results/
+test-results/
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
+# Container runtime
+.docker/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# SBOM files (generated)
+sbom.json
+image-sbom.json
+*-sbom.json
+
+# Security scan results (generated)
+trivy-*
+grype-*
+
+# Credentials and secrets
+*.key
+*.pem
+*.p12
+*.crt
+secrets/
+.env
+.env.local
+
+# Cache directories
+.cache/
+cache/
+node_modules/
+vendor/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+go.work.sum
+
+# Backup files
+*.bak
+*.backup

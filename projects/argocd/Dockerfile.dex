@@ -1,0 +1,43 @@
+# ArgoCD Dex FIPS-Compliant Dockerfile
+# Extends base ArgoCD image for Dex authentication component
+
+FROM ./Dockerfile as runtime-base
+
+# Copy dex binary
+COPY --from=builder /src/dist/argocd-dex /usr/local/bin/argocd-dex
+COPY --from=builder /src/dist/argocd /usr/local/bin/argocd
+
+# Set permissions
+USER root
+RUN chown root:root /usr/local/bin/argocd* && \
+    chmod 755 /usr/local/bin/argocd*
+
+# Create directories for Dex configuration
+RUN mkdir -p /app/config/dex && \
+    chown -R argocd:argocd /app/config
+
+# Switch back to non-root user
+USER argocd
+
+# Dex-specific environment
+ENV ARGOCD_DEX_SERVER_DISABLE_TLS="false"
+
+# Health check for dex
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD ["/usr/local/bin/argocd", "version", "--client"] || exit 1
+
+# Expose Dex ports
+EXPOSE 5556 5557 5558
+
+# Default command
+ENTRYPOINT ["/usr/local/bin/argocd-dex"]
+CMD ["--help"]
+
+# Labels for metadata
+LABEL name="mailknight/argocd-dex" \
+      component="dex" \
+      version="v2.11.0-mailknight" \
+      description="FIPS-compliant ArgoCD Dex Authentication Server" \
+      vendor="Mailknight" \
+      security.fips="enabled" \
+      org.opencontainers.image.source="https://github.com/Striar-Yunis/mailknight"

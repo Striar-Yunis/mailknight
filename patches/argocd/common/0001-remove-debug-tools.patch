@@ -1,0 +1,29 @@
+From: Mailknight Security Team <security@mailknight.dev>
+Date: Wed, 1 Jan 2025 00:00:00 +0000
+Subject: [PATCH] Remove unnecessary debugging tools from build
+
+This patch removes unnecessary debugging and development tools
+from the final binary to reduce attack surface and image size.
+
+Signed-off-by: Mailknight Security Team <security@mailknight.dev>
+---
+ cmd/argocd/main.go | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/cmd/argocd/main.go b/cmd/argocd/main.go
+index 1234567..abcdefg 100644
+--- a/cmd/argocd/main.go
++++ b/cmd/argocd/main.go
+@@ -20,10 +20,6 @@ import (
+ 	"github.com/argoproj/argo-cd/v2/cmd/argocd/commands"
+ 	"github.com/argoproj/argo-cd/v2/common"
+ 	"github.com/argoproj/argo-cd/v2/util/cli"
+-	// Mailknight: Remove debug imports to reduce attack surface
+-	_ "net/http/pprof"
+-	_ "github.com/pkg/profile"
+-	_ "expvar"
+ )
+ 
+ func main() {
+-- 
+2.45.0

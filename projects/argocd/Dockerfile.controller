@@ -1,0 +1,37 @@
+# ArgoCD Application Controller FIPS-Compliant Dockerfile
+# Extends base ArgoCD image for application controller component
+
+FROM ./Dockerfile as runtime-base
+
+# Copy application-controller binary
+COPY --from=builder /src/dist/argocd-application-controller /usr/local/bin/argocd-application-controller
+COPY --from=builder /src/dist/argocd /usr/local/bin/argocd
+
+# Set permissions
+USER root
+RUN chown root:root /usr/local/bin/argocd* && \
+    chmod 755 /usr/local/bin/argocd*
+
+# Switch back to non-root user
+USER argocd
+
+# Controller-specific environment
+ENV ARGOCD_APPLICATION_CONTROLLER_REPO_SERVER="argocd-repo-server:8081"
+ENV ARGOCD_APPLICATION_CONTROLLER_REPO_SERVER_TIMEOUT_SECONDS="60"
+
+# Health check for application-controller
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD ["/usr/local/bin/argocd", "version", "--client"] || exit 1
+
+# Default command
+ENTRYPOINT ["/usr/local/bin/argocd-application-controller"]
+CMD ["--help"]
+
+# Labels for metadata
+LABEL name="mailknight/argocd-application-controller" \
+      component="application-controller" \
+      version="v2.11.0-mailknight" \
+      description="FIPS-compliant ArgoCD Application Controller" \
+      vendor="Mailknight" \
+      security.fips="enabled" \
+      org.opencontainers.image.source="https://github.com/Striar-Yunis/mailknight"

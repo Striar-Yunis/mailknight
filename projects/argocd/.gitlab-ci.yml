@@ -1,0 +1,221 @@
+# ArgoCD Multi-Container Project Pipeline
+# FIPS-compliant ArgoCD build pipeline with support for multiple containers
+
+include:
+  - local: '/.mailknight.yml'
+
+variables:
+  PROJECT_NAME: "argocd"
+  UPSTREAM_REPO: "https://github.com/argoproj/argo-cd.git"
+  UPSTREAM_VERSION: "v2.11.0"
+  GO_VERSION: "1.21"
+  NODE_VERSION: "18"
+  
+  # ArgoCD specific build variables
+  ARGOCD_VERSION: "${UPSTREAM_VERSION}-mailknight"
+  GOOS: "linux"
+  GOARCH: "amd64"
+  CGO_ENABLED: "1"
+
+stages:
+  - fetch-source
+  - apply-patches
+  - build-binary
+  - build-containers
+  - scan
+  - test
+  - release
+
+# Fetch ArgoCD source code (shared for all containers)
+fetch-argocd-source:
+  extends: .fetch-source
+  variables:
+    PROJECT_NAME: "argocd"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+
+# Apply Mailknight patches for FIPS compliance (shared for all containers)
+apply-argocd-patches:
+  extends: .apply-patches
+  variables:
+    PROJECT_NAME: "argocd"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+
+# Build ArgoCD binaries with FIPS compliance (shared for all containers)
+build-argocd-binary:
+  extends: .build-binary
+  variables:
+    PROJECT_NAME: "argocd"
+  before_script:
+    - microdnf update -y
+    - microdnf install -y git wget curl ca-certificates gcc gcc-c++ make
+    - curl -L "https://golang.org/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -xz -C /usr/local
+    - export PATH="/usr/local/go/bin:$PATH"
+    - go version
+    - node --version || echo "Node.js not available, will install if needed"
+
+# Build individual container images for each ArgoCD component
+build-argocd-server:
+  extends: .build-container
+  variables:
+    PROJECT_NAME: "argocd"
+    CONTAINER_NAME: "server"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+    DOCKERFILE: "Dockerfile.server"
+
+build-argocd-repo-server:
+  extends: .build-container
+  variables:
+    PROJECT_NAME: "argocd"
+    CONTAINER_NAME: "repo-server"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+    DOCKERFILE: "Dockerfile.repo-server"
+
+build-argocd-application-controller:
+  extends: .build-container
+  variables:
+    PROJECT_NAME: "argocd"
+    CONTAINER_NAME: "application-controller"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+    DOCKERFILE: "Dockerfile.controller"
+
+build-argocd-applicationset-controller:
+  extends: .build-container
+  variables:
+    PROJECT_NAME: "argocd"
+    CONTAINER_NAME: "applicationset-controller"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+    DOCKERFILE: "Dockerfile.applicationset-controller"
+
+build-argocd-dex:
+  extends: .build-container
+  variables:
+    PROJECT_NAME: "argocd"
+    CONTAINER_NAME: "dex"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+    DOCKERFILE: "Dockerfile.dex"
+
+build-argocd-notification:
+  extends: .build-container
+  variables:
+    PROJECT_NAME: "argocd"
+    CONTAINER_NAME: "notification"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+    DOCKERFILE: "Dockerfile.notification"
+
+# Scan each container for vulnerabilities
+scan-argocd-server:
+  extends: .scan-vulnerabilities
+  variables:
+    PROJECT_NAME: "argocd"
+    CONTAINER_NAME: "server"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+  needs: ["build-argocd-server"]
+
+scan-argocd-repo-server:
+  extends: .scan-vulnerabilities
+  variables:
+    PROJECT_NAME: "argocd"
+    CONTAINER_NAME: "repo-server"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+  needs: ["build-argocd-repo-server"]
+
+scan-argocd-application-controller:
+  extends: .scan-vulnerabilities
+  variables:
+    PROJECT_NAME: "argocd"
+    CONTAINER_NAME: "application-controller"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+  needs: ["build-argocd-application-controller"]
+
+scan-argocd-applicationset-controller:
+  extends: .scan-vulnerabilities
+  variables:
+    PROJECT_NAME: "argocd"
+    CONTAINER_NAME: "applicationset-controller"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+  needs: ["build-argocd-applicationset-controller"]
+
+scan-argocd-dex:
+  extends: .scan-vulnerabilities
+  variables:
+    PROJECT_NAME: "argocd"
+    CONTAINER_NAME: "dex"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+  needs: ["build-argocd-dex"]
+
+scan-argocd-notification:
+  extends: .scan-vulnerabilities
+  variables:
+    PROJECT_NAME: "argocd"
+    CONTAINER_NAME: "notification"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+  needs: ["build-argocd-notification"]
+
+# Test FIPS compliance for each container
+test-argocd-server-fips:
+  extends: .test-fips-compliance
+  variables:
+    PROJECT_NAME: "argocd"
+    CONTAINER_NAME: "server"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+  needs: ["build-argocd-server"]
+
+test-argocd-repo-server-fips:
+  extends: .test-fips-compliance
+  variables:
+    PROJECT_NAME: "argocd"
+    CONTAINER_NAME: "repo-server"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+  needs: ["build-argocd-repo-server"]
+
+test-argocd-application-controller-fips:
+  extends: .test-fips-compliance
+  variables:
+    PROJECT_NAME: "argocd"
+    CONTAINER_NAME: "application-controller"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+  needs: ["build-argocd-application-controller"]
+
+test-argocd-applicationset-controller-fips:
+  extends: .test-fips-compliance
+  variables:
+    PROJECT_NAME: "argocd"
+    CONTAINER_NAME: "applicationset-controller"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+  needs: ["build-argocd-applicationset-controller"]
+
+test-argocd-dex-fips:
+  extends: .test-fips-compliance
+  variables:
+    PROJECT_NAME: "argocd"
+    CONTAINER_NAME: "dex"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+  needs: ["build-argocd-dex"]
+
+test-argocd-notification-fips:
+  extends: .test-fips-compliance
+  variables:
+    PROJECT_NAME: "argocd"
+    CONTAINER_NAME: "notification"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+  needs: ["build-argocd-notification"]
+
+# Release all ArgoCD container artifacts
+release-argocd:
+  extends: .release-artifacts
+  variables:
+    PROJECT_NAME: "argocd"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+  needs:
+    - "scan-argocd-server"
+    - "scan-argocd-repo-server"
+    - "scan-argocd-application-controller"
+    - "scan-argocd-applicationset-controller"
+    - "scan-argocd-dex"
+    - "scan-argocd-notification"
+    - "test-argocd-server-fips"
+    - "test-argocd-repo-server-fips"
+    - "test-argocd-application-controller-fips"
+    - "test-argocd-applicationset-controller-fips"
+    - "test-argocd-dex-fips"
+    - "test-argocd-notification-fips"

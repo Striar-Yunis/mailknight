@@ -1,0 +1,113 @@
+apiVersion: v1
+kind: MailknightProject
+metadata:
+  name: argocd
+  description: "ArgoCD GitOps continuous delivery tool"
+spec:
+  upstream:
+    repository: "https://github.com/argoproj/argo-cd.git"
+    version: "v2.11.0"
+  
+  # Global project settings
+  settings:
+    goVersion: "1.21"
+    nodeVersion: "18"
+    fipsEnabled: true
+    buildFlags:
+      cflags: "-fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE"
+      cxxflags: "-fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE"
+      ldflags: "-Wl,-z,relro,-z,now -pie"
+  
+  # Multiple containers for this project
+  containers:
+    server:
+      description: "ArgoCD API Server"
+      dockerfile: "Dockerfile.server"
+      entrypoint: "/usr/local/bin/argocd-server"
+      ports: [8080, 8083]
+      dependencies:
+        - git
+        - ca-certificates
+        - openssh-client
+      buildArgs:
+        COMPONENT: "server"
+      
+    repo-server:
+      description: "ArgoCD Repository Server"
+      dockerfile: "Dockerfile.repo-server"
+      entrypoint: "/usr/local/bin/argocd-repo-server"
+      ports: [8081]
+      dependencies:
+        - git
+        - git-lfs
+        - ca-certificates
+        - openssh-client
+        - gnupg
+        - helm
+        - kustomize
+      buildArgs:
+        COMPONENT: "repo-server"
+        
+    application-controller:
+      description: "ArgoCD Application Controller"
+      dockerfile: "Dockerfile.controller"
+      entrypoint: "/usr/local/bin/argocd-application-controller"
+      dependencies:
+        - ca-certificates
+      buildArgs:
+        COMPONENT: "application-controller"
+        
+    applicationset-controller:
+      description: "ArgoCD ApplicationSet Controller"
+      dockerfile: "Dockerfile.applicationset-controller"
+      entrypoint: "/usr/local/bin/argocd-applicationset-controller"
+      dependencies:
+        - ca-certificates
+      buildArgs:
+        COMPONENT: "applicationset-controller"
+        
+    dex:
+      description: "ArgoCD Authentication (Dex)"
+      dockerfile: "Dockerfile.dex"
+      entrypoint: "/usr/local/bin/argocd-dex"
+      ports: [5556, 5557, 5558]
+      dependencies:
+        - ca-certificates
+      buildArgs:
+        COMPONENT: "dex"
+        
+    notification:
+      description: "ArgoCD Notifications Controller"
+      dockerfile: "Dockerfile.notification"
+      entrypoint: "/usr/local/bin/argocd-notification"
+      dependencies:
+        - ca-certificates
+      buildArgs:
+        COMPONENT: "notification"
+
+  # Common patches applied to all containers
+  patches:
+    common:
+      - "patches/argocd/common/"
+    version-specific:
+      - "patches/argocd/v2.11.0/"
+      
+  # Security scanning configuration
+  security:
+    vulnerabilityScanning:
+      enabled: true
+      severity: ["HIGH", "CRITICAL"]
+      failOnVulnerabilities: true
+    fipsCompliance:
+      enabled: true
+      openssl: true
+      runtime: true
+    sbom:
+      format: "cyclonedx"
+      enabled: true
+      
+  # Testing configuration
+  testing:
+    fipsCompliance: true
+    containerSecurity: true
+    runtimeTests: true
