@@ -51,7 +51,7 @@ jobs:
     - name: Setup environment
       run: |
         microdnf update -y
-        microdnf install -y git wget curl ca-certificates findutils tar
+        microdnf install -y git wget curl ca-certificates findutils tar python3 python3-pyyaml
         echo "FIPS Mode Check:"
         if [ -f /proc/sys/crypto/fips_enabled ]; then cat /proc/sys/crypto/fips_enabled; fi
         
@@ -87,7 +87,7 @@ jobs:
     - name: Setup environment
       run: |
         microdnf update -y
-        microdnf install -y git wget curl ca-certificates findutils tar
+        microdnf install -y git wget curl ca-certificates findutils tar python3 python3-pyyaml
         
     - name: Apply patches
       run: |
@@ -121,7 +121,7 @@ jobs:
     - name: Setup build environment
       run: |
         microdnf update -y
-        microdnf install -y git wget curl ca-certificates gcc gcc-c++ make nodejs npm tar
+        microdnf install -y git wget curl ca-certificates gcc gcc-c++ make nodejs npm tar python3 python3-pyyaml findutils
         curl -L "https://golang.org/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -xz -C /usr/local
         export PATH="/usr/local/go/bin:$PATH"
         go version
@@ -217,7 +217,7 @@ jobs:
     - name: Setup environment
       run: |
         microdnf update -y
-        microdnf install -y git wget curl ca-certificates tar
+        microdnf install -y git wget curl ca-certificates tar python3 python3-pyyaml findutils
         
     - name: Install Trivy
       run: |
@@ -271,7 +271,7 @@ jobs:
     - name: Setup environment
       run: |
         microdnf update -y
-        microdnf install -y git wget curl ca-certificates tar
+        microdnf install -y git wget curl ca-certificates tar python3 python3-pyyaml findutils
         
     - name: Test FIPS compliance
       run: |
@@ -303,7 +303,7 @@ jobs:
     - name: Setup environment
       run: |
         microdnf update -y
-        microdnf install -y git wget curl ca-certificates tar
+        microdnf install -y git wget curl ca-certificates tar python3 python3-pyyaml findutils
         
     - name: Release artifacts
       run: |

@@ -43,7 +43,7 @@ jobs:
             registry.access.redhat.com/ubi8/ubi-minimal:latest \
             sh -c '
               microdnf update -y
-              microdnf install -y git wget curl ca-certificates python3 tar
+              microdnf install -y git wget curl ca-certificates python3 tar python3-pyyaml findutils
               echo "Validating Mailknight pipeline configuration..."
               chmod +x scripts/validate-config.sh
               scripts/validate-config.sh
