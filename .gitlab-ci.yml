@@ -21,6 +21,7 @@ stages:
   - fetch-source
   - apply-patches
   - build
+  - build-containers
   - scan
   - test
   - release

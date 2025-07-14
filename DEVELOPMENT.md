@@ -1,168 +1,180 @@
 # Mailknight Development Guide
 
-## Overview
+Mailknight is a secure software supply chain automation system that builds FIPS-compliant, hardened container images for open source projects.
 
-Mailknight is a secure software supply chain automation system that builds hardened, FIPS-compliant container images and binary artifacts from open source projects.
+## Architecture
 
-## Quick Start
+### Multi-Container Project Support
 
-### Building ArgoCD
+Mailknight supports projects that consist of multiple containers with different build requirements. Each container can have:
 
-```bash
-# Trigger ArgoCD build pipeline
-git commit --allow-empty -m "Trigger ArgoCD build"
-git push origin main
-```
+- **Individual Dockerfiles**: Component-specific build configurations
+- **Separate Dependencies**: Different runtime and build dependencies
+- **Independent Scanning**: Vulnerability scanning per container
+- **Component Testing**: FIPS compliance testing per container
+- **Isolated Artifacts**: Separate SBOMs, scan results, and test reports
 
-### Local Development
+### Project Configuration
 
-```bash
-# Validate configuration
-./scripts/validate-config.sh
+Each project defines its containers in a `mailknight.yaml` configuration file:
 
-# Fetch ArgoCD source
-./scripts/fetch-upstream.sh argocd v2.11.0
-
-# Apply patches
-./scripts/apply-patches.sh argocd v2.11.0
-
-# Build binary
-./scripts/build-project.sh argocd
-
-# Build container (requires Docker)
-./scripts/build-container.sh argocd v2.11.0
-
-# Run security scans
-./scripts/install-trivy.sh
-./scripts/scan-image.sh argocd v2.11.0
-
-# Test FIPS compliance
-./scripts/test-fips-compliance.sh argocd v2.11.0
-
-# Create release
-./scripts/release-artifacts.sh argocd v2.11.0
+```yaml
+apiVersion: v1
+kind: MailknightProject
+metadata:
+  name: argocd
+spec:
+  upstream:
+    repository: "https://github.com/argoproj/argo-cd.git"
+    version: "v2.11.0"
+  
+  containers:
+    server:
+      description: "ArgoCD API Server"
+      dockerfile: "Dockerfile.server"
+      entrypoint: "/usr/local/bin/argocd-server"
+      ports: [8080, 8083]
+      dependencies:
+        - git
+        - openssh-client
+    
+    repo-server:
+      description: "ArgoCD Repository Server"
+      dockerfile: "Dockerfile.repo-server"
+      entrypoint: "/usr/local/bin/argocd-repo-server"
+      dependencies:
+        - git
+        - git-lfs
+        - helm
+        - kustomize
 ```
 
 ## Directory Structure
 
 ```
 mailknight/
-├── .gitlab-ci.yml           # Main GitLab CI pipeline
-├── .mailknight.yml          # Shared CI templates
-├── projects/                # Project-specific configurations
+├── .gitlab-ci.yml              # Main pipeline orchestration
+├── .mailknight.yml             # Shared CI templates
+├── projects/
 │   └── argocd/
-│       ├── .gitlab-ci.yml   # ArgoCD pipeline
-│       └── Dockerfile       # FIPS-compliant Dockerfile
-├── patches/                 # Security and FIPS patches
-│   └── argocd/
-│       ├── v2.11.0/         # Version-specific patches
-│       └── common/          # Common patches
-├── vex/                     # VEX (Vulnerability Exploitability eXchange)
-│   └── argocd/
-│       └── 2025-001.json    # VEX statements
-├── scripts/                 # Build and automation scripts
-└── README.md                # This file
+│       ├── mailknight.yaml     # Project configuration
+│       ├── Dockerfile          # Base Dockerfile
+│       ├── Dockerfile.server   # Server component
+│       ├── Dockerfile.repo-server # Repository server
+│       └── .gitlab-ci.yml      # Project pipeline
+├── patches/argocd/             # Security patches
+├── vex/argocd/                 # VEX statements
+└── scripts/                    # Build automation
+```
+
+## Build Process
+
+### 1. Source Preparation (Shared)
+- Fetch upstream source code
+- Apply security patches
+- Build all binaries
+
+### 2. Container Building (Per Component)
+- Use component-specific Dockerfiles
+- Install component-specific dependencies
+- Generate component SBOMs
+
+### 3. Security Scanning (Per Component)
+- Vulnerability scanning with Trivy
+- Component-specific VEX application
+- Secret scanning
+
+### 4. FIPS Testing (Per Component)
+- Component-specific functionality tests
+- FIPS mode verification
+- Runtime security checks
+
+## ArgoCD Example
+
+The ArgoCD project demonstrates multi-container support with these components:
+
+- **server**: API server with Git and SSH tools
+- **repo-server**: Repository server with Git, Helm, and Kustomize
+- **application-controller**: Main controller with minimal dependencies
+- **applicationset-controller**: ApplicationSet controller
+- **dex**: Authentication service
+- **notification**: Notification controller
+
+Each component:
+- Has its own optimized Dockerfile
+- Gets scanned independently
+- Has component-specific tests
+- Produces separate artifacts
+
+## Pipeline Features
+
+### Matrix Builds
+Automatically generates build jobs for each container defined in the project configuration.
+
+### Quality Gates
+Each container must pass:
+- ✅ Vulnerability scanning (HIGH/CRITICAL blocking)
+- ✅ FIPS compliance verification
+- ✅ Component functionality tests
+- ✅ Container security hardening checks
+
+### Artifacts
+Per component:
+- Container image (`.tar.gz`)
+- SBOM (`image-sbom-{component}.json`)
+- Scan results (`scan-results/{component}/`)
+- Test results (`test-results/{component}/`)
+
+## Usage
+
+### Trigger Multi-Container Build
+```bash
+git commit --allow-empty -m "Build ArgoCD containers"
+git push origin main
+```
+
+### Local Development
+```bash
+# Build specific component
+./scripts/build-container.sh argocd v2.11.0 server Dockerfile.server
+
+# Scan specific component
+./scripts/scan-image.sh argocd v2.11.0 server
+
+# Test specific component
+./scripts/test-fips-compliance.sh argocd v2.11.0 server
+```
+
+### Example Output
+```
+📦 Built Images:
+- mailknight/argocd-server:v2.11.0-mailknight
+- mailknight/argocd-repo-server:v2.11.0-mailknight
+- mailknight/argocd-application-controller:v2.11.0-mailknight
+- mailknight/argocd-applicationset-controller:v2.11.0-mailknight
+- mailknight/argocd-dex:v2.11.0-mailknight
+- mailknight/argocd-notification:v2.11.0-mailknight
+
+🔐 All components: FIPS-compliant ✅
+🛡️  All components: No HIGH/CRITICAL CVEs ✅
+📋 SBOMs: Generated for each component ✅
 ```
 
 ## Adding New Projects
 
-1. Create project directory: `mkdir -p projects/newproject`
-2. Add GitLab CI configuration: `projects/newproject/.gitlab-ci.yml`
-3. Create Dockerfile: `projects/newproject/Dockerfile`
-4. Add patches directory: `mkdir -p patches/newproject/common`
-5. Update main pipeline to trigger new project
+1. Create project directory: `projects/{project-name}/`
+2. Add `mailknight.yaml` configuration
+3. Create base `Dockerfile` and component-specific Dockerfiles
+4. Add project pipeline: `projects/{project-name}/.gitlab-ci.yml`
+5. Configure patches: `patches/{project-name}/`
 
 ## Security Features
 
-### FIPS Compliance
-- Uses FIPS-enabled base images (UBI8)
-- Compiles with FIPS-compliant OpenSSL
-- Enables FIPS mode in runtime environment
-- Tests FIPS compliance in CI pipeline
+- **FIPS-140-2 Compliance**: OpenSSL FIPS mode enforced
+- **Hardened Builds**: Stack protection, FORTIFY_SOURCE, RELRO, PIE
+- **Minimal Runtime**: Non-root execution, minimal attack surface
+- **Vulnerability Scanning**: Component-specific CVE detection
+- **Supply Chain Security**: SBOM generation, artifact signing
+- **VEX Support**: Component-specific vulnerability overrides
 
-### Hardening
-- Stack protection (`-fstack-protector-strong`)
-- FORTIFY_SOURCE (`-D_FORTIFY_SOURCE=2`)
-- RELRO (`-Wl,-z,relro,-z,now`)
-- Position Independent Executables (PIE)
-- Minimal runtime environment
-- Non-root execution
-
-### Supply Chain Security
-- Source code verification
-- Dependency scanning with Trivy
-- SBOM generation with Syft
-- VEX statements for vulnerability management
-- Artifact signing with Cosign
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `FIPS_ENABLED` | Enable FIPS mode | `true` |
-| `TRIVY_VERSION` | Trivy scanner version | `0.48.0` |
-| `SYFT_VERSION` | Syft SBOM generator version | `0.100.0` |
-| `COSIGN_VERSION` | Cosign signing tool version | `2.2.2` |
-
-### Build Flags
-
-| Flag | Purpose |
-|------|---------|
-| `CFLAGS` | C compiler hardening flags |
-| `CXXFLAGS` | C++ compiler hardening flags |
-| `LDFLAGS` | Linker hardening flags |
-| `CGO_CFLAGS` | CGO C compiler flags |
-| `CGO_LDFLAGS` | CGO linker flags |
-
-## Quality Gates
-
-The pipeline includes several quality gates:
-
-1. **Configuration Validation**: Validates YAML syntax and directory structure
-2. **Source Verification**: Verifies source code integrity and signatures
-3. **FIPS Compliance**: Tests FIPS mode and cryptographic compliance
-4. **Vulnerability Scanning**: Scans for HIGH and CRITICAL CVEs
-5. **Supply Chain Security**: Generates and validates SBOMs
-
-## Troubleshooting
-
-### Common Issues
-
-**FIPS Mode Not Enabled**
-- Ensure base image supports FIPS
-- Check `OPENSSL_FORCE_FIPS_MODE=1` environment variable
-- Verify `/proc/sys/crypto/fips_enabled` is set to 1
-
-**Build Failures**
-- Check hardening flags compatibility
-- Verify all dependencies support static linking
-- Review patch application logs
-
-**Security Scan Failures**
-- Review VEX statements in `vex/` directory
-- Update base image to latest security patches
-- Apply project-specific security patches
-
-### Debug Mode
-
-Enable debug output in scripts:
-```bash
-export DEBUG=1
-./scripts/build-project.sh argocd
-```
-
-## Contributing
-
-1. Add new projects following the existing structure
-2. Include security patches in appropriate directories
-3. Update documentation for new features
-4. Test FIPS compliance for all changes
-
-## Support
-
-For questions and support:
-- Review logs in GitLab CI pipeline
-- Check script output in debug mode
-- Verify configuration with validation script
+Mailknight ensures each container component meets the same high security standards while allowing for different build requirements and optimizations.

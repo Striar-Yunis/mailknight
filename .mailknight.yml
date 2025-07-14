@@ -64,7 +64,7 @@
 
 .build-container:
   extends: .mailknight-base
-  stage: build
+  stage: build-containers
   image: docker:24-dind
   services:
     - docker:24-dind
@@ -72,44 +72,50 @@
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
     DOCKER_DRIVER: overlay2
+    CONTAINER_NAME: "main"  # Default container name, can be overridden
+    DOCKERFILE: "Dockerfile"  # Default dockerfile, can be overridden
   before_script:
     - apk add --no-cache git curl
   script:
-    - scripts/build-container.sh ${PROJECT_NAME} ${UPSTREAM_VERSION}
+    - scripts/build-container.sh ${PROJECT_NAME} ${UPSTREAM_VERSION} ${CONTAINER_NAME} ${DOCKERFILE}
   artifacts:
     paths:
-      - images/
-      - image-sbom.json
+      - images/${CONTAINER_NAME}/
+      - image-sbom-${CONTAINER_NAME}.json
     expire_in: 1 day
 
 .scan-vulnerabilities:
   extends: .mailknight-base
   stage: scan
   needs: ["build-container"]
+  variables:
+    CONTAINER_NAME: "main"  # Default container name, can be overridden
   script:
     - scripts/install-trivy.sh
-    - scripts/scan-image.sh ${PROJECT_NAME} ${UPSTREAM_VERSION}
+    - scripts/scan-image.sh ${PROJECT_NAME} ${UPSTREAM_VERSION} ${CONTAINER_NAME}
   artifacts:
     paths:
-      - scan-results/
+      - scan-results/${CONTAINER_NAME}/
     expire_in: 1 week
     reports:
-      dependency_scanning: scan-results/trivy-dependency.json
-      container_scanning: scan-results/trivy-container.json
+      dependency_scanning: scan-results/${CONTAINER_NAME}/trivy-dependency.json
+      container_scanning: scan-results/${CONTAINER_NAME}/trivy-container.json
   allow_failure: false
 
 .test-fips-compliance:
   extends: .mailknight-base
   stage: test
   needs: ["build-container"]
+  variables:
+    CONTAINER_NAME: "main"  # Default container name, can be overridden
   script:
-    - scripts/test-fips-compliance.sh ${PROJECT_NAME} ${UPSTREAM_VERSION}
+    - scripts/test-fips-compliance.sh ${PROJECT_NAME} ${UPSTREAM_VERSION} ${CONTAINER_NAME}
   artifacts:
     paths:
-      - test-results/
+      - test-results/${CONTAINER_NAME}/
     expire_in: 1 week
     reports:
-      junit: test-results/fips-compliance.xml
+      junit: test-results/${CONTAINER_NAME}/fips-compliance.xml
 
 .release-artifacts:
   extends: .mailknight-base

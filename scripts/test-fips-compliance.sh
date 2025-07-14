@@ -1,23 +1,24 @@
 #!/bin/bash
 # Test FIPS compliance for container image
-# Usage: test-fips-compliance.sh <project_name> <version>
+# Usage: test-fips-compliance.sh <project_name> <version> [container_name]
 
 set -euo pipefail
 
 PROJECT_NAME="${1:-}"
 VERSION="${2:-}"
+CONTAINER_NAME="${3:-main}"
 
 if [[ -z "$PROJECT_NAME" || -z "$VERSION" ]]; then
-    echo "Usage: $0 <project_name> <version>"
+    echo "Usage: $0 <project_name> <version> [container_name]"
     exit 1
 fi
 
-echo "🔐 Testing FIPS compliance for $PROJECT_NAME:$VERSION"
+echo "🔐 Testing FIPS compliance for $PROJECT_NAME:$VERSION (component: $CONTAINER_NAME)"
 
-# Create test results directory
-mkdir -p test-results
+# Create component-specific test results directory
+mkdir -p "test-results/$CONTAINER_NAME"
 
-IMAGE_NAME="mailknight/$PROJECT_NAME:$VERSION-mailknight"
+IMAGE_NAME="mailknight/$PROJECT_NAME-$CONTAINER_NAME:$VERSION-mailknight"
 TEST_DATE=$(date -Iseconds)
 
 # Check if image exists
@@ -104,18 +105,53 @@ else
     echo "⚠️  checksec not available, skipping binary hardening tests"
 fi
 
-# Test 7: Project-specific FIPS tests
+# Test 7: Component-specific FIPS tests
 case "$PROJECT_NAME" in
     "argocd")
-        # Test ArgoCD can start and show version
-        run_test "ArgoCD version command" \
-            "docker run --rm '$IMAGE_NAME' version --client" \
-            "pass"
-        
-        # Test ArgoCD server can show help
-        run_test "ArgoCD server help" \
-            "docker run --rm '$IMAGE_NAME'-server --help" \
-            "pass"
+        case "$CONTAINER_NAME" in
+            "server")
+                # Test ArgoCD server can show help
+                run_test "ArgoCD server help" \
+                    "docker run --rm '$IMAGE_NAME' --help" \
+                    "pass"
+                ;;
+            "repo-server")
+                # Test ArgoCD repo-server can show help
+                run_test "ArgoCD repo-server help" \
+                    "docker run --rm '$IMAGE_NAME' --help" \
+                    "pass"
+                ;;
+            "application-controller")
+                # Test ArgoCD application-controller can show help
+                run_test "ArgoCD application-controller help" \
+                    "docker run --rm '$IMAGE_NAME' --help" \
+                    "pass"
+                ;;
+            "applicationset-controller")
+                # Test ArgoCD applicationset-controller can show help  
+                run_test "ArgoCD applicationset-controller help" \
+                    "docker run --rm '$IMAGE_NAME' --help" \
+                    "pass"
+                ;;
+            "dex")
+                # Test ArgoCD dex can show help
+                run_test "ArgoCD dex help" \
+                    "docker run --rm '$IMAGE_NAME' --help" \
+                    "pass"
+                ;;
+            "notification")
+                # Test ArgoCD notification can show help
+                run_test "ArgoCD notification help" \
+                    "docker run --rm '$IMAGE_NAME' --help" \
+                    "pass"
+                ;;
+            *)
+                # Generic ArgoCD test for unknown containers
+                run_test "ArgoCD version command" \
+                    "docker run --rm '$IMAGE_NAME' version --client" \
+                    "pass"
+                ;;
+        esac
         ;;
 esac
 
@@ -123,29 +159,30 @@ esac
 TOTAL_TESTS=$((TESTS_PASSED + TESTS_FAILED))
 SUCCESS_RATE=$(echo "scale=2; $TESTS_PASSED * 100 / $TOTAL_TESTS" | bc -l 2>/dev/null || echo "0")
 
-# Generate JUnit XML report
-cat > test-results/fips-compliance.xml << EOF
+# Generate JUnit XML report (component-specific)
+cat > "test-results/$CONTAINER_NAME/fips-compliance.xml" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="FIPS Compliance Tests" tests="$TOTAL_TESTS" failures="$TESTS_FAILED" time="$(date +%s)">
+<testsuite name="FIPS Compliance Tests - $CONTAINER_NAME" tests="$TOTAL_TESTS" failures="$TESTS_FAILED" time="$(date +%s)">
 EOF
 
 for result in "${TEST_RESULTS[@]}"; do
     test_name=$(echo "$result" | cut -d: -f2- | xargs)
     if [[ "$result" == PASS:* ]]; then
-        echo "  <testcase name=\"$test_name\" classname=\"FIPSCompliance\"/>" >> test-results/fips-compliance.xml
+        echo "  <testcase name=\"$test_name\" classname=\"FIPSCompliance.$CONTAINER_NAME\"/>" >> "test-results/$CONTAINER_NAME/fips-compliance.xml"
     else
-        echo "  <testcase name=\"$test_name\" classname=\"FIPSCompliance\">" >> test-results/fips-compliance.xml
-        echo "    <failure message=\"Test failed\">$result</failure>" >> test-results/fips-compliance.xml
-        echo "  </testcase>" >> test-results/fips-compliance.xml
+        echo "  <testcase name=\"$test_name\" classname=\"FIPSCompliance.$CONTAINER_NAME\">" >> "test-results/$CONTAINER_NAME/fips-compliance.xml"
+        echo "    <failure message=\"Test failed\">$result</failure>" >> "test-results/$CONTAINER_NAME/fips-compliance.xml"
+        echo "  </testcase>" >> "test-results/$CONTAINER_NAME/fips-compliance.xml"
     fi
 done
 
-echo "</testsuite>" >> test-results/fips-compliance.xml
+echo "</testsuite>" >> "test-results/$CONTAINER_NAME/fips-compliance.xml"
 
-# Generate JSON report
-cat > test-results/fips-compliance.json << EOF
+# Generate JSON report (component-specific)
+cat > "test-results/$CONTAINER_NAME/fips-compliance.json" << EOF
 {
   "project": "$PROJECT_NAME",
+  "component": "$CONTAINER_NAME",
   "version": "$VERSION",
   "image": "$IMAGE_NAME",
   "test_date": "$TEST_DATE",
@@ -164,7 +201,7 @@ EOF
 
 # Display results
 echo ""
-echo "📊 FIPS Compliance Test Results:"
+echo "📊 FIPS Compliance Test Results for $CONTAINER_NAME:"
 echo "   Total tests: $TOTAL_TESTS"
 echo "   Passed: $TESTS_PASSED"
 echo "   Failed: $TESTS_FAILED"
@@ -187,4 +224,4 @@ else
     exit 1
 fi
 
-echo "📄 Test reports saved to test-results/"
+echo "📄 Test reports for $CONTAINER_NAME saved to test-results/$CONTAINER_NAME/"

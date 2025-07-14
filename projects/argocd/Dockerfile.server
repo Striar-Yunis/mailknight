@@ -1,7 +1,7 @@
-# ArgoCD FIPS-Compliant Base Dockerfile
-# Multi-stage build for minimal, hardened ArgoCD components
+# ArgoCD Server FIPS-Compliant Dockerfile
+# Builds server component from base ArgoCD image
 
-# Build stage using FIPS-enabled base
+# Use builder stage from base Dockerfile
 FROM registry.access.redhat.com/ubi8/ubi:latest as builder
 
 # Install build dependencies
@@ -48,28 +48,60 @@ RUN make build LDFLAGS="-linkmode external -extldflags '-static-pie -Wl,-z,relro
     strip dist/argocd-* && \
     chmod 755 dist/argocd*
 
-# Component-specific runtime stages will use this as base
-FROM registry.access.redhat.com/ubi8/ubi-minimal:latest as runtime-base
+# Runtime stage for server component
+FROM registry.access.redhat.com/ubi8/ubi-minimal:latest
 
-# Install minimal runtime dependencies
+# Install server-specific dependencies
 RUN microdnf update -y && \
     microdnf install -y \
         ca-certificates \
-        tzdata && \
+        tzdata \
+        git \
+        openssh-clients && \
     microdnf clean all
 
 # Create non-root user
 RUN groupadd -r argocd && \
     useradd -r -g argocd -s /bin/false argocd
 
+# Copy server binary
+COPY --from=builder /src/dist/argocd-server /usr/local/bin/argocd-server
+COPY --from=builder /src/dist/argocd /usr/local/bin/argocd
+
+# Set permissions
+RUN chown root:root /usr/local/bin/argocd* && \
+    chmod 755 /usr/local/bin/argocd*
+
 # Create working directory
 RUN mkdir -p /app && chown argocd:argocd /app
 WORKDIR /app
 
-# Enable FIPS mode
-ENV OPENSSL_FORCE_FIPS_MODE=1
-
 # Switch to non-root user
 USER argocd
 
-# This base image will be extended by component-specific Dockerfiles
+# Enable FIPS mode
+ENV OPENSSL_FORCE_FIPS_MODE=1
+
+# Server-specific environment
+ENV ARGOCD_SERVER_INSECURE="false"
+ENV ARGOCD_SERVER_ROOTPATH="/"
+
+# Health check for server
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD ["/usr/local/bin/argocd", "admin", "settings", "rbac", "can", "get", "applications", "--server", "localhost:8080", "--plaintext", "--insecure"] || exit 1
+
+# Expose server ports
+EXPOSE 8080 8083
+
+# Default command
+ENTRYPOINT ["/usr/local/bin/argocd-server"]
+CMD ["--help"]
+
+# Labels for metadata
+LABEL name="mailknight/argocd-server" \
+      component="server" \
+      version="v2.11.0-mailknight" \
+      description="FIPS-compliant ArgoCD API Server" \
+      vendor="Mailknight" \
+      security.fips="enabled" \
+      org.opencontainers.image.source="https://github.com/Striar-Yunis/mailknight"

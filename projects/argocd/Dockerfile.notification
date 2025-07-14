@@ -1,0 +1,36 @@
+# ArgoCD Notification Controller FIPS-Compliant Dockerfile
+# Extends base ArgoCD image for notification controller component
+
+FROM ./Dockerfile as runtime-base
+
+# Copy notification binary
+COPY --from=builder /src/dist/argocd-notification /usr/local/bin/argocd-notification
+COPY --from=builder /src/dist/argocd /usr/local/bin/argocd
+
+# Set permissions
+USER root
+RUN chown root:root /usr/local/bin/argocd* && \
+    chmod 755 /usr/local/bin/argocd*
+
+# Switch back to non-root user
+USER argocd
+
+# Notification controller-specific environment
+ENV ARGOCD_NOTIFICATION_CONTROLLER_SELF_SERVICE_ENABLED="true"
+
+# Health check for notification controller
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD ["/usr/local/bin/argocd", "version", "--client"] || exit 1
+
+# Default command
+ENTRYPOINT ["/usr/local/bin/argocd-notification"]
+CMD ["--help"]
+
+# Labels for metadata
+LABEL name="mailknight/argocd-notification" \
+      component="notification" \
+      version="v2.11.0-mailknight" \
+      description="FIPS-compliant ArgoCD Notification Controller" \
+      vendor="Mailknight" \
+      security.fips="enabled" \
+      org.opencontainers.image.source="https://github.com/Striar-Yunis/mailknight"
