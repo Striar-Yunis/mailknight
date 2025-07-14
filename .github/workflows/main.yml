@@ -36,7 +36,7 @@ jobs:
       - name: Setup environment
         run: |
           microdnf update -y
-          microdnf install -y git wget curl ca-certificates python3
+          microdnf install -y git wget curl ca-certificates python3 tar
 
       - name: Validate configuration
         run: |
