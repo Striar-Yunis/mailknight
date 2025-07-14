@@ -121,10 +121,16 @@ jobs:
     - name: Setup build environment
       run: |
         microdnf update -y
-        microdnf install -y git wget curl ca-certificates gcc gcc-c++ make
+        microdnf install -y git wget curl ca-certificates gcc gcc-c++ make nodejs npm
         curl -L "https://golang.org/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -xz -C /usr/local
         export PATH="/usr/local/go/bin:$PATH"
         go version
+        node --version
+        
+    - name: Install Syft for SBOM generation
+      run: |
+        curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin v${SYFT_VERSION}
+        syft version
         
     - name: Build project
       run: |
@@ -215,8 +221,12 @@ jobs:
         
     - name: Install Trivy
       run: |
-        chmod +x scripts/install-trivy.sh
-        scripts/install-trivy.sh
+        # Install without sudo since we're in a container
+        TRIVY_URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+        curl -sL "$TRIVY_URL" | tar -xz -C /tmp
+        mv /tmp/trivy /usr/local/bin/trivy
+        chmod +x /usr/local/bin/trivy
+        trivy --version
         
     - name: Scan image
       run: |
