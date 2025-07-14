@@ -47,8 +47,12 @@ build-argocd-binary:
     PROJECT_NAME: "argocd"
   before_script:
     - microdnf update -y
-    - microdnf install -y git wget curl ca-certificates gcc gcc-c++ make
-    - curl -L "https://golang.org/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -xz -C /usr/local
+    - microdnf install -y git wget curl ca-certificates gcc gcc-c++ make gzip tar
+    - echo "Downloading Go ${GO_VERSION}..."
+    - GO_TARBALL="/tmp/go${GO_VERSION}.linux-amd64.tar.gz"
+    - curl -L "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o "$GO_TARBALL"
+    - echo "Extracting Go..."
+    - tar -xzf "$GO_TARBALL" -C /usr/local
     - export PATH="/usr/local/go/bin:$PATH"
     - go version
     - node --version || echo "Node.js not available, will install if needed"

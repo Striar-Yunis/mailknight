@@ -16,6 +16,8 @@ env:
   UPSTREAM_VERSION: "v3.0.11"
   GO_VERSION: "1.21"
   NODE_VERSION: "18"
+  SYFT_VERSION: "0.100.0"
+  TRIVY_VERSION: "0.48.3"
   
   # ArgoCD specific build variables
   ARGOCD_VERSION: "v3.0.11-mailknight"
@@ -144,11 +146,16 @@ jobs:
           registry.access.redhat.com/ubi8/ubi-minimal:latest \
           sh -c '
             microdnf update -y
-            microdnf install -y git wget curl ca-certificates gcc gcc-c++ make nodejs npm tar python3 python3-pyyaml findutils
-            curl -L "https://golang.org/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -xz -C /usr/local
+            microdnf install -y git wget curl ca-certificates gcc gcc-c++ make nodejs npm tar gzip python3 python3-pyyaml findutils
+            echo "Downloading Go ${GO_VERSION}..."
+            GO_TARBALL="/tmp/go${GO_VERSION}.linux-amd64.tar.gz"
+            curl -L "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o "$GO_TARBALL"
+            echo "Extracting Go..."
+            tar -xzf "$GO_TARBALL" -C /usr/local
             export PATH="/usr/local/go/bin:$PATH"
             go version
             node --version
+            echo "Installing Syft v${SYFT_VERSION}..."
             curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin v${SYFT_VERSION}
             syft version
             export PATH="/usr/local/go/bin:$PATH"

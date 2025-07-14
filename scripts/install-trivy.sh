@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-TRIVY_VERSION="${TRIVY_VERSION:-0.48.0}"
+TRIVY_VERSION="${TRIVY_VERSION:-0.48.3}"
 
 echo "📥 Installing Trivy security scanner version $TRIVY_VERSION"
 
@@ -23,9 +23,14 @@ TRIVY_URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERS
 echo "📦 Downloading Trivy from: $TRIVY_URL"
 curl -sL "$TRIVY_URL" | tar -xz -C /tmp
 
-# Install to /usr/local/bin
-sudo mv /tmp/trivy /usr/local/bin/trivy
-sudo chmod +x /usr/local/bin/trivy
+# Install to /usr/local/bin (use sudo only if available)
+if command -v sudo &> /dev/null; then
+    sudo mv /tmp/trivy /usr/local/bin/trivy
+    sudo chmod +x /usr/local/bin/trivy
+else
+    mv /tmp/trivy /usr/local/bin/trivy
+    chmod +x /usr/local/bin/trivy
+fi
 
 # Verify installation
 if trivy --version; then

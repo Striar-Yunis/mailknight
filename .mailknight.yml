@@ -9,6 +9,10 @@
     - echo "FIPS Mode Check:"
     - if [ -f /proc/sys/crypto/fips_enabled ]; then cat /proc/sys/crypto/fips_enabled; fi
   variables:
+    # Tool versions
+    SYFT_VERSION: "0.100.0"
+    TRIVY_VERSION: "0.48.3"
+    
     # Security and build hardening
     CFLAGS: "-fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE -O2"
     CXXFLAGS: "-fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE -O2"
