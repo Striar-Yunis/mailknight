@@ -39,6 +39,34 @@ cp -r build/* "$BUILD_CONTEXT/" 2>/dev/null || true
 cp -r source "$BUILD_CONTEXT/"
 cp "$DOCKERFILE" "$BUILD_CONTEXT/Dockerfile"
 
+# Extract versions from mailknight.yaml if it exists
+GO_VERSION=""
+NODE_VERSION=""
+PROJECT_CONFIG="projects/$PROJECT_NAME/mailknight.yaml"
+if [[ -f "$PROJECT_CONFIG" ]]; then
+    echo "📋 Reading versions from $PROJECT_CONFIG"
+    GO_VERSION=$(python3 -c "
+import yaml
+try:
+    with open('$PROJECT_CONFIG', 'r') as f:
+        config = yaml.safe_load(f)
+    print(config['spec']['settings'].get('goVersion', ''))
+except:
+    print('')
+")
+    NODE_VERSION=$(python3 -c "
+import yaml
+try:
+    with open('$PROJECT_CONFIG', 'r') as f:
+        config = yaml.safe_load(f)
+    print(config['spec']['settings'].get('nodeVersion', ''))
+except:
+    print('')
+")
+    echo "🔧 Extracted Go version: ${GO_VERSION:-'not specified'}"
+    echo "🔧 Extracted Node version: ${NODE_VERSION:-'not specified'}"
+fi
+
 # Copy base Dockerfile if this is a component-specific build
 if [[ "$DOCKERFILE_NAME" != "Dockerfile" ]]; then
     BASE_DOCKERFILE="projects/$PROJECT_NAME/Dockerfile"
@@ -51,12 +79,29 @@ fi
 
 # Build image with hardening options
 echo "🔨 Building Docker image for $CONTAINER_NAME component..."
+
+# Prepare build args with version information
+BUILD_ARGS=(
+    --build-arg PROJECT_NAME="$PROJECT_NAME"
+    --build-arg CONTAINER_NAME="$CONTAINER_NAME"
+    --build-arg VERSION="$VERSION"
+    --build-arg BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+    --build-arg VCS_REF="$(git rev-parse --short HEAD)"
+)
+
+# Add version build args if they were extracted from mailknight.yaml
+if [[ -n "$GO_VERSION" ]]; then
+    BUILD_ARGS+=(--build-arg GO_VERSION="$GO_VERSION")
+    echo "🔧 Using Go version: $GO_VERSION"
+fi
+
+if [[ -n "$NODE_VERSION" ]]; then
+    BUILD_ARGS+=(--build-arg NODE_VERSION="$NODE_VERSION")
+    echo "🔧 Using Node version: $NODE_VERSION"
+fi
+
 docker build \
-    --build-arg PROJECT_NAME="$PROJECT_NAME" \
-    --build-arg CONTAINER_NAME="$CONTAINER_NAME" \
-    --build-arg VERSION="$VERSION" \
-    --build-arg BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-    --build-arg VCS_REF="$(git rev-parse --short HEAD)" \
+    "${BUILD_ARGS[@]}" \
     --label "org.opencontainers.image.title=mailknight/$PROJECT_NAME-$CONTAINER_NAME" \
     --label "org.opencontainers.image.version=$IMAGE_TAG" \
     --label "org.opencontainers.image.created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
