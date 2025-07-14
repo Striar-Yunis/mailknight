@@ -31,7 +31,7 @@ default:
   image: registry.access.redhat.com/ubi8/ubi-minimal:latest
   before_script:
     - microdnf update -y
-    - microdnf install -y git wget curl ca-certificates
+    - microdnf install -y git wget curl ca-certificates python3 tar
   retry:
     max: 2
     when:
