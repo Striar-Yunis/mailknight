@@ -146,19 +146,32 @@ jobs:
           registry.access.redhat.com/ubi8/ubi-minimal:latest \
           sh -c '
             microdnf update -y
-            microdnf install -y git wget curl ca-certificates gcc gcc-c++ make nodejs npm tar gzip python3 python3-pyyaml findutils
+            microdnf install -y git wget curl ca-certificates gcc gcc-c++ make nodejs npm tar gzip python3 python3-pyyaml findutils file
             echo "Downloading Go ${GO_VERSION}..."
             GO_TARBALL="/tmp/go${GO_VERSION}.linux-amd64.tar.gz"
-            curl -L "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o "$GO_TARBALL"
+            GO_URL="https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
+            echo "Fetching Go from: $GO_URL"
+            if ! curl -fsSL "$GO_URL" -o "$GO_TARBALL"; then
+                echo "❌ Failed to download Go from $GO_URL"
+                exit 1
+            fi
+            echo "Verifying Go download..."
+            if [[ ! -f "$GO_TARBALL" ]] || [[ ! -s "$GO_TARBALL" ]]; then
+                echo "❌ Go tarball is missing or empty"
+                exit 1
+            fi
+            file "$GO_TARBALL"
             echo "Extracting Go..."
-            tar -xzf "$GO_TARBALL" -C /usr/local
+            if ! tar -xzf "$GO_TARBALL" -C /usr/local; then
+                echo "❌ Failed to extract Go tarball"
+                exit 1
+            fi
             export PATH="/usr/local/go/bin:$PATH"
             go version
             node --version
             echo "Installing Syft v${SYFT_VERSION}..."
             curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin v${SYFT_VERSION}
             syft version
-            export PATH="/usr/local/go/bin:$PATH"
             chmod +x scripts/build-project.sh
             scripts/build-project.sh ${PROJECT_NAME}
           '
