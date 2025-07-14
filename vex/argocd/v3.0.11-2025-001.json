@@ -1,0 +1,81 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "mailknight/vex/argocd/v3.0.11-2025-001.json",
+  "author": "Mailknight Security Team",
+  "timestamp": "2025-01-14T22:35:00Z",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": {
+        "name": "CVE-2025-29786"
+      },
+      "products": [
+        {
+          "component": "mailknight/argocd",
+          "subcomponents": [
+            "github.com/expr-lang/expr@1.16.9"
+          ]
+        }
+      ],
+      "status": "under_investigation",
+      "justification": "The expr-lang package is used in ArgoCD for expression evaluation. The memory exhaustion vulnerability requires unrestricted input, which may not be exploitable in ArgoCD's specific usage context.",
+      "impact_statement": "HIGH severity vulnerability in expr parser. Needs evaluation of ArgoCD's specific usage patterns and input validation to determine actual exploitability.",
+      "action_statement": "Investigate if ArgoCD's usage of expr-lang validates input size or if upgrade is possible.",
+      "timestamp": "2025-01-14T22:35:00Z"
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2025-1767"
+      },
+      "products": [
+        {
+          "component": "mailknight/argocd",
+          "subcomponents": [
+            "k8s.io/kubernetes@1.32.2"
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "This GitRepo volume vulnerability affects kubelet specifically, but ArgoCD does not use GitRepo volumes in its execution path.",
+      "action_statement": "No action required. ArgoCD does not utilize the vulnerable GitRepo volume functionality.",
+      "timestamp": "2025-01-14T22:35:00Z"
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2025-4563"
+      },
+      "products": [
+        {
+          "component": "mailknight/argocd",
+          "subcomponents": [
+            "k8s.io/kubernetes@1.32.2"
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "This kube-apiserver vulnerability affects dynamic resource allocation bypass, which is not used by ArgoCD in its standard deployment.",
+      "action_statement": "No action required. ArgoCD does not utilize dynamic resource allocation features.",
+      "timestamp": "2025-01-14T22:35:00Z"
+    },
+    {
+      "vulnerability": {
+        "name": "GHSA-2x5j-vhc8-9cwm"
+      },
+      "products": [
+        {
+          "component": "mailknight/argocd",
+          "subcomponents": [
+            "github.com/cloudflare/circl@1.6.0"
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "LOW severity issue in CIRCL-Fourq validation. The specific cryptographic primitives affected are not used in ArgoCD's cryptographic operations.",
+      "action_statement": "No action required. ArgoCD uses standard TLS/OIDC crypto, not Fourq-specific functionality.",
+      "timestamp": "2025-01-14T22:35:00Z"
+    }
+  ]
+}

@@ -6,7 +6,7 @@ metadata:
 spec:
   upstream:
     repository: "https://github.com/argoproj/argo-cd.git"
-    version: "v2.11.0"
+    version: "v3.0.11"
   
   # Global project settings
   settings:
@@ -90,7 +90,7 @@ spec:
     common:
       - "patches/argocd/common/"
     version-specific:
-      - "patches/argocd/v2.11.0/"
+      - "patches/argocd/v3.0.11/"
       
   # Security scanning configuration
   security:
