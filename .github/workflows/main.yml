@@ -18,8 +18,8 @@ env:
   COSIGN_VERSION: "2.2.2"
 
   # Build hardening flags
-  CFLAGS: "-fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE"
-  CXXFLAGS: "-fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE"
+  CFLAGS: "-fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE -O2"
+  CXXFLAGS: "-fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE -O2"
   LDFLAGS: "-Wl,-z,relro,-z,now -pie"
 
 jobs:
