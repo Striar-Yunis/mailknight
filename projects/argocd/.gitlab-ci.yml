@@ -8,7 +8,7 @@ variables:
   PROJECT_NAME: "argocd"
   UPSTREAM_REPO: "https://github.com/argoproj/argo-cd.git"
   UPSTREAM_VERSION: "v3.0.11"
-  GO_VERSION: "1.21"
+  GO_VERSION: "1.24.4"
   NODE_VERSION: "18"
   
   # ArgoCD specific build variables
