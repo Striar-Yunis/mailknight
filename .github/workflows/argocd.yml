@@ -13,12 +13,12 @@ on:
 env:
   PROJECT_NAME: "argocd"
   UPSTREAM_REPO: "https://github.com/argoproj/argo-cd.git"
-  UPSTREAM_VERSION: "v2.11.0"
+  UPSTREAM_VERSION: "v3.0.11"
   GO_VERSION: "1.21"
   NODE_VERSION: "18"
   
   # ArgoCD specific build variables
-  ARGOCD_VERSION: "v2.11.0-mailknight"
+  ARGOCD_VERSION: "v3.0.11-mailknight"
   GOOS: "linux"
   GOARCH: "amd64"
   CGO_ENABLED: "1"

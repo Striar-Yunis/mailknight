@@ -119,7 +119,7 @@ CMD ["--help"]
 # Labels for metadata
 LABEL name="mailknight/argocd-repo-server" \
       component="repo-server" \
-      version="v2.11.0-mailknight" \
+      version="v3.0.11-mailknight" \
       description="FIPS-compliant ArgoCD Repository Server" \
       vendor="Mailknight" \
       security.fips="enabled" \

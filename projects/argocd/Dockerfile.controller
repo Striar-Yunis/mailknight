@@ -30,7 +30,7 @@ CMD ["--help"]
 # Labels for metadata
 LABEL name="mailknight/argocd-application-controller" \
       component="application-controller" \
-      version="v2.11.0-mailknight" \
+      version="v3.0.11-mailknight" \
       description="FIPS-compliant ArgoCD Application Controller" \
       vendor="Mailknight" \
       security.fips="enabled" \

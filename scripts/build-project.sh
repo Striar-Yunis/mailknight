@@ -52,29 +52,33 @@ case "$PROJECT_NAME" in
         GIT_COMMIT=$(git rev-parse --short HEAD)
         
         LDFLAGS=(
-            "-linkmode external"
-            "-extldflags '-static-pie -Wl,-z,relro,-z,now'"
-            "-X github.com/argoproj/argo-cd/v2/common.version=${UPSTREAM_VERSION:-unknown}"
-            "-X github.com/argoproj/argo-cd/v2/common.buildDate=$BUILD_DATE"
-            "-X github.com/argoproj/argo-cd/v2/common.gitCommit=$GIT_COMMIT"
+            "-X github.com/argoproj/argo-cd/v3/common.version=${UPSTREAM_VERSION:-unknown}"
+            "-X github.com/argoproj/argo-cd/v3/common.buildDate=$BUILD_DATE"
+            "-X github.com/argoproj/argo-cd/v3/common.gitCommit=$GIT_COMMIT"
             "-s -w"  # Strip symbols
         )
         
-        # Build all ArgoCD components
+        # Build all ArgoCD components (v3.0.11+ uses single main.go with different binary names)
         echo "  Building argocd CLI..."
-        go build -ldflags "${LDFLAGS[*]}" -o "../../$BUILD_DIR/argocd" ./cmd/argocd
+        go build -ldflags "${LDFLAGS[*]}" -o "../../$BUILD_DIR/argocd" ./cmd/main.go
         
         echo "  Building argocd-server..."
-        go build -ldflags "${LDFLAGS[*]}" -o "../../$BUILD_DIR/argocd-server" ./cmd/argocd-server
+        go build -ldflags "${LDFLAGS[*]}" -o "../../$BUILD_DIR/argocd-server" ./cmd/main.go
         
         echo "  Building argocd-repo-server..."
-        go build -ldflags "${LDFLAGS[*]}" -o "../../$BUILD_DIR/argocd-repo-server" ./cmd/argocd-repo-server
+        go build -ldflags "${LDFLAGS[*]}" -o "../../$BUILD_DIR/argocd-repo-server" ./cmd/main.go
         
         echo "  Building argocd-application-controller..."
-        go build -ldflags "${LDFLAGS[*]}" -o "../../$BUILD_DIR/argocd-application-controller" ./cmd/argocd-application-controller
+        go build -ldflags "${LDFLAGS[*]}" -o "../../$BUILD_DIR/argocd-application-controller" ./cmd/main.go
         
         echo "  Building argocd-dex..."
-        go build -ldflags "${LDFLAGS[*]}" -o "../../$BUILD_DIR/argocd-dex" ./cmd/argocd-dex
+        go build -ldflags "${LDFLAGS[*]}" -o "../../$BUILD_DIR/argocd-dex" ./cmd/main.go
+        
+        echo "  Building argocd-applicationset-controller..."
+        go build -ldflags "${LDFLAGS[*]}" -o "../../$BUILD_DIR/argocd-applicationset-controller" ./cmd/main.go
+        
+        echo "  Building argocd-notification..."
+        go build -ldflags "${LDFLAGS[*]}" -o "../../$BUILD_DIR/argocd-notification" ./cmd/main.go
         
         # Build UI if present
         if [[ -f "package.json" ]]; then
@@ -120,9 +124,9 @@ cat > "$BUILD_DIR/build-metadata.json" << EOF
   "build_system": "mailknight",
   "fips_enabled": true,
   "hardening_flags": {
-    "cflags": "$CFLAGS",
-    "cxxflags": "$CXXFLAGS", 
-    "ldflags": "$LDFLAGS"
+    "cflags": "${CFLAGS:-}",
+    "cxxflags": "${CXXFLAGS:-}",
+    "ldflags": "${LDFLAGS:-}"
   },
   "build_environment": {
     "source_date_epoch": "$SOURCE_DATE_EPOCH",
