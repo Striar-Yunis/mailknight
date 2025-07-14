@@ -26,23 +26,28 @@ jobs:
   # Validate pipeline configuration
   validate-pipeline:
     runs-on: ubuntu-latest
-    container:
-      image: registry.access.redhat.com/ubi8/ubi-minimal:latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup environment
+      - name: Validate configuration in UBI8 container
         run: |
-          microdnf update -y
-          microdnf install -y git wget curl ca-certificates python3
-
-      - name: Validate configuration
-        run: |
-          echo "Validating Mailknight pipeline configuration..."
-          chmod +x scripts/validate-config.sh
-          scripts/validate-config.sh
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            -w /workspace \
+            -e FIPS_ENABLED="$FIPS_ENABLED" \
+            -e TRIVY_VERSION="$TRIVY_VERSION" \
+            -e SYFT_VERSION="$SYFT_VERSION" \
+            -e COSIGN_VERSION="$COSIGN_VERSION" \
+            registry.access.redhat.com/ubi8/ubi-minimal:latest \
+            sh -c '
+              microdnf update -y
+              microdnf install -y git wget curl ca-certificates python3 tar python3-pyyaml findutils
+              echo "Validating Mailknight pipeline configuration..."
+              chmod +x scripts/validate-config.sh
+              scripts/validate-config.sh
+            '
 
   # Detect changes and trigger appropriate project workflows
   detect-changes:

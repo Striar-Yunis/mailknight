@@ -5,7 +5,7 @@
   image: registry.access.redhat.com/ubi8/ubi-minimal:latest
   before_script:
     - microdnf update -y
-    - microdnf install -y git wget curl ca-certificates findutils
+    - microdnf install -y git wget curl ca-certificates python3 tar python3-pyyaml findutils
     - echo "FIPS Mode Check:"
     - if [ -f /proc/sys/crypto/fips_enabled ]; then cat /proc/sys/crypto/fips_enabled; fi
   variables:
