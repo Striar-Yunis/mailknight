@@ -1,0 +1,81 @@
+# ArgoCD Project Pipeline
+# FIPS-compliant ArgoCD build pipeline
+
+include:
+  - local: '/.mailknight.yml'
+
+variables:
+  PROJECT_NAME: "argocd"
+  UPSTREAM_REPO: "https://github.com/argoproj/argo-cd.git"
+  UPSTREAM_VERSION: "v2.11.0"
+  GO_VERSION: "1.21"
+  NODE_VERSION: "18"
+  
+  # ArgoCD specific build variables
+  ARGOCD_VERSION: "${UPSTREAM_VERSION}-mailknight"
+  GOOS: "linux"
+  GOARCH: "amd64"
+  CGO_ENABLED: "1"
+
+stages:
+  - fetch-source
+  - apply-patches
+  - build
+  - scan
+  - test
+  - release
+
+# Fetch ArgoCD source code
+fetch-argocd-source:
+  extends: .fetch-source
+  variables:
+    PROJECT_NAME: "argocd"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+
+# Apply Mailknight patches for FIPS compliance
+apply-argocd-patches:
+  extends: .apply-patches
+  variables:
+    PROJECT_NAME: "argocd"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+
+# Build ArgoCD binaries with FIPS compliance
+build-argocd-binary:
+  extends: .build-binary
+  variables:
+    PROJECT_NAME: "argocd"
+  before_script:
+    - microdnf update -y
+    - microdnf install -y git wget curl ca-certificates gcc gcc-c++ make
+    - curl -L "https://golang.org/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -xz -C /usr/local
+    - export PATH="/usr/local/go/bin:$PATH"
+    - go version
+    - node --version || echo "Node.js not available, will install if needed"
+
+# Build ArgoCD container image
+build-argocd-container:
+  extends: .build-container
+  variables:
+    PROJECT_NAME: "argocd"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+
+# Scan ArgoCD for vulnerabilities
+scan-argocd:
+  extends: .scan-vulnerabilities
+  variables:
+    PROJECT_NAME: "argocd"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+
+# Test FIPS compliance for ArgoCD
+test-argocd-fips:
+  extends: .test-fips-compliance
+  variables:
+    PROJECT_NAME: "argocd"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"
+
+# Release ArgoCD artifacts
+release-argocd:
+  extends: .release-artifacts
+  variables:
+    PROJECT_NAME: "argocd"
+    UPSTREAM_VERSION: "${UPSTREAM_VERSION}"

@@ -1,0 +1,43 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "mailknight/vex/argocd/2025-001.json",
+  "author": "Mailknight Security Team",
+  "timestamp": "2025-01-01T00:00:00Z",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": {
+        "name": "CVE-2023-example"
+      },
+      "products": [
+        {
+          "component": "mailknight/argocd",
+          "subcomponents": [
+            "github.com/example/vulnerable-package"
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "The vulnerable code path is not reachable in our hardened build configuration. The package is included as a transitive dependency but the vulnerable functions are not called in ArgoCD's execution flow.",
+      "action_statement": "No action required. Mailknight's build process excludes the vulnerable code paths through conditional compilation.",
+      "timestamp": "2025-01-01T00:00:00Z"
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2023-example-2"
+      },
+      "products": [
+        {
+          "component": "mailknight/argocd",
+          "subcomponents": [
+            "openssl"
+          ]
+        }
+      ],
+      "status": "fixed",
+      "action_statement": "Fixed by upgrading to FIPS-compliant OpenSSL version in base image. Mailknight uses UBI8 base images with certified FIPS modules.",
+      "timestamp": "2025-01-01T00:00:00Z"
+    }
+  ]
+}
