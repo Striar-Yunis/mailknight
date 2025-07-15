@@ -20,14 +20,23 @@ RUN dnf update -y && \
     dnf clean all
 
 # Install FIPS-compliant Go
-ARG GO_VERSION=1.21.5
-RUN curl -L "https://golang.org/dl/go${GO_VERSION}.linux-amd64.tar.gz" | \
+ARG GO_VERSION
+RUN if [ -z "$GO_VERSION" ]; then \
+        echo "Error: GO_VERSION build argument is required" && exit 1; \
+    fi && \
+    GO_FULL_VERSION="${GO_VERSION}.5" && \
+    echo "Installing Go version ${GO_FULL_VERSION}" && \
+    curl -L "https://golang.org/dl/go${GO_FULL_VERSION}.linux-amd64.tar.gz" | \
     tar -xz -C /usr/local
 ENV PATH="/usr/local/go/bin:$PATH"
 
 # Install Node.js with FIPS support
-ARG NODE_VERSION=18
-RUN curl -fsSL https://rpm.nodesource.com/setup_${NODE_VERSION}.x | bash - && \
+ARG NODE_VERSION
+RUN if [ -z "$NODE_VERSION" ]; then \
+        echo "Error: NODE_VERSION build argument is required" && exit 1; \
+    fi && \
+    echo "Installing Node.js version ${NODE_VERSION}" && \
+    curl -fsSL https://rpm.nodesource.com/setup_${NODE_VERSION}.x | bash - && \
     dnf install -y nodejs && \
     dnf clean all
 
