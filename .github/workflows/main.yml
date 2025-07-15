@@ -13,7 +13,7 @@ on:
 env:
   # Global variables for all projects
   FIPS_ENABLED: "true"
-  TRIVY_VERSION: "0.48.0"
+  TRIVY_VERSION: "0.48.3"
   SYFT_VERSION: "0.100.0"
   COSIGN_VERSION: "2.2.2"
 

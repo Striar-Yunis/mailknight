@@ -1,138 +1,185 @@
-Mailknight is a secure software supply chain automation system, inspired by Chainguard. Its goal is to build hardened, FIPS-compliant container images and binary artifacts from open source projects like ArgoCD, Crossplane, cert-manager, etc., and keep them free of known CVEs using automation.
+# Mailknight
 
-🔧 Key Features
-Secure, reproducible GitLab CI pipelines
+Mailknight is a secure software supply chain automation system that builds hardened, FIPS-compliant container images from open source projects. Inspired by Chainguard's approach, it provides end-to-end automation for secure container builds with comprehensive vulnerability scanning and compliance testing.
 
-Use GitLab CI for fully automated, deterministic builds of open source projects
+## 🏗️ Architecture
 
-Ensure each pipeline can run:
+Mailknight supports **multi-container projects** where each component has optimized build configurations, security scanning, and FIPS compliance testing. The system runs on both GitLab CI and GitHub Actions, using Red Hat UBI8 base images for FIPS 140-2 compliance.
 
-On a FIPS-enabled base image (e.g., ubi8-minimal, rockylinux:8)
+### Core Components
 
-With hardened compiler flags (e.g., -fstack-protector, -D_FORTIFY_SOURCE=2, -Wl,-z,relro,-z,now)
+- **Projects**: Multi-container project definitions (`projects/argocd/`)
+- **Patches**: Security patches and FIPS compliance fixes (`patches/argocd/`)
+- **VEX Statements**: Vulnerability exception documentation (`vex/argocd/`)
+- **Scripts**: Automation tools for building, scanning, and testing (`scripts/`)
+- **CI Templates**: Shared pipeline templates (`.mailknight.yml`)
 
-With SBOM (Software Bill of Materials) generation
+## 🔧 Key Features
 
-Use GitLab CI’s rules, needs, and artifacts for efficient builds and caching
+### Multi-Container Support
+- Individual Dockerfiles per component
+- Component-specific dependency management
+- Isolated security scanning and testing
+- Per-component SBOM generation
 
-FIPS-compliant builds
+### Security & Compliance
+- **FIPS 140-2 Compliance**: OpenSSL FIPS mode enforced
+- **Hardened Builds**: Stack protection, FORTIFY_SOURCE, RELRO, PIE
+- **Vulnerability Scanning**: Trivy-based CVE detection with VEX overrides
+- **Supply Chain Security**: SBOM generation and artifact signing preparation
 
-Compile binaries with OpenSSL FIPS modules where applicable
+### Automated Pipelines
+- **GitLab CI & GitHub Actions**: Dual CI support for flexibility
+- **Matrix Builds**: Automatic multi-container builds
+- **Quality Gates**: Block releases on HIGH/CRITICAL CVEs
+- **Reproducible Builds**: SOURCE_DATE_EPOCH and build flags
 
-Enforce use of --openssl-fips or equivalent when building Node.js, Python, or other interpreted language runtimes
+## 📦 Example: ArgoCD Project
 
-In containers, enable /proc/sys/crypto/fips_enabled or require runtime checks to ensure FIPS enforcement
+Mailknight builds 6 hardened ArgoCD containers:
 
-Long-Term Support (LTS) downstreaming
+| Component | Description | Key Dependencies |
+|-----------|-------------|------------------|
+| `server` | API Server | Git, SSH, CA certificates |
+| `repo-server` | Repository Server | Git, Helm, Kustomize, GnuPG |
+| `application-controller` | Main Controller | Minimal (CA certificates only) |
+| `applicationset-controller` | ApplicationSet Controller | Minimal (CA certificates only) |
+| `dex` | Authentication Service | Minimal (CA certificates only) |
+| `notification` | Notification Controller | Minimal (CA certificates only) |
 
-Mirror and track upstream open source releases into a local Git monorepo
+### Build Output
+```
+📦 Built Images:
+- mailknight/argocd-server:v3.0.11-mailknight
+- mailknight/argocd-repo-server:v3.0.11-mailknight
+- mailknight/argocd-application-controller:v3.0.11-mailknight
+- mailknight/argocd-applicationset-controller:v3.0.11-mailknight
+- mailknight/argocd-dex:v3.0.11-mailknight
+- mailknight/argocd-notification:v3.0.11-mailknight
 
-Patch upstream releases to remove CVEs using:
+🔐 All components: FIPS-compliant ✅
+🛡️  All components: No HIGH/CRITICAL CVEs ✅
+📋 SBOMs: Generated for each component ✅
+```
 
-Git patches
+## 🚀 Quick Start
 
-Dependency overrides
+### Prerequisites
+- GitLab CI runner with Docker support OR GitHub Actions environment
+- Access to Red Hat UBI8 base images
+- Docker 24+ with BuildKit support
 
-Build flag adjustments
+### Running a Build
 
-Maintain a patchset folder per project (like mailknight/patches/argocd/v2.11.0)
+**GitLab CI:**
+```bash
+# Trigger ArgoCD multi-container build
+git commit --allow-empty -m "Build ArgoCD containers"
+git push origin main
+```
 
-Use Git tags or GitLab Releases to track Mailknight downstream LTS builds
+**GitHub Actions:**
+```bash
+# Trigger via workflow dispatch or push to trigger paths
+git push origin main
+```
 
-CVE scanning and VEX
+### Local Development
+```bash
+# Build specific component
+./scripts/build-container.sh argocd v3.0.11 server Dockerfile.server
 
-Automatically scan all images with Trivy or Grype post-build
+# Scan for vulnerabilities
+./scripts/scan-image.sh argocd v3.0.11 server
 
-Output JSON results, and:
+# Test FIPS compliance
+./scripts/test-fips-compliance.sh argocd v3.0.11 server
+```
 
-Block releases if HIGH or CRITICAL CVEs are present and not mitigated
+## 📋 Project Structure
 
-Allow VEX (Vulnerability Exploitability eXchange) overrides for acceptable CVEs (e.g., package present but not used)
+```
+mailknight/
+├── .gitlab-ci.yml              # GitLab CI orchestration
+├── .github/workflows/          # GitHub Actions workflows
+├── .mailknight.yml             # Shared CI templates
+├── projects/
+│   └── argocd/
+│       ├── mailknight.yaml     # Project configuration
+│       ├── Dockerfile.*        # Component Dockerfiles
+│       └── .gitlab-ci.yml      # Project-specific pipeline
+├── patches/argocd/             # Security patches per version
+├── vex/argocd/                 # VEX vulnerability statements
+└── scripts/                    # Build automation scripts
+```
 
-Store VEX justifications per CVE/project in JSON or markdown (mailknight/vex/argocd/2025-001.json)
+## 🛡️ Security Pipeline
 
-Image hardening
+Each container goes through:
 
-Strip containers to minimal runtime base (scratch, distroless, ubi8-minimal)
+1. **Source Preparation** (shared)
+   - Fetch upstream source
+   - Apply security patches
+   - Build all binaries with hardened flags
 
-Remove unused tools (e.g., jq, perl, wget, curl) from builds
+2. **Container Building** (per component)
+   - Component-specific Dockerfiles
+   - Minimal runtime dependencies
+   - FIPS-compliant base images
 
-Run strip, upx, and chmod -x on everything non-essential
+3. **Security Scanning** (per component)
+   - Trivy vulnerability scanning
+   - VEX statement application
+   - SBOM generation
 
-Sign all images using cosign or sigstore
+4. **FIPS Testing** (per component)
+   - Runtime FIPS verification
+   - Component functionality tests
+   - Security hardening checks
 
-Automated downstream sync
+## 🔧 Configuration
 
-Poll upstream GitHub releases via cron or webhook
+### Project Configuration (`mailknight.yaml`)
+```yaml
+apiVersion: v1
+kind: MailknightProject
+metadata:
+  name: argocd
+spec:
+  upstream:
+    repository: "https://github.com/argoproj/argo-cd.git"
+    version: "v3.0.11"
+  
+  containers:
+    server:
+      dockerfile: "Dockerfile.server"
+      entrypoint: "/usr/local/bin/argocd-server"
+      dependencies: [git, ca-certificates, openssh-client]
+```
 
-When a new upstream release is tagged:
+### Hardening Flags
+```bash
+CFLAGS="-fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE -O2"
+LDFLAGS="-Wl,-z,relro,-z,now -pie"
+OPENSSL_FORCE_FIPS_MODE=1
+```
 
-Automatically clone, diff against current LTS fork
+## 🎯 Planned Projects
 
-Attempt to apply existing patches or flag merge conflicts
+Future projects to support:
+- **crossplane**: Cloud infrastructure management
+- **cert-manager**: Certificate management
+- **vault**: Secrets management
+- **nginx**: FIPS-compliant reverse proxy
 
-Rebuild and test using existing Mailknight pipeline
+## 🤝 Contributing
 
-📦 Projects to Build FIPS-Compliant:
-Example open source projects to support:
+See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed development guide, including:
+- Adding new projects
+- Creating patches
+- VEX statement management
+- Testing procedures
 
-argocd
+## 📄 License
 
-crossplane
-
-cert-manager
-
-vault
-
-node (runtime)
-
-python (runtime)
-
-openssl (library builds)
-
-nginx (reverse proxy with FIPS TLS)
-
-💡 GitLab CI Best Practices
-Use separate jobs for fetch-source, apply-patches, build, scan, and release
-
-Use a GitLab CI template like .mailknight.yml to standardize across projects
-
-Use GitLab's includes: to share pipelines across repos
-
-Implement caching for source tarballs and build outputs
-
-Tag artifacts with git hash + semantic version (e.g., mailknight-argocd:v2.11.0-lts.20250701)
-
-Use git describe --tags to derive build version automatically
-
-🧪 CI Quality Gates
-FIPS enforcement test:
-
-bash
-Copy
-Edit
-test "$(cat /proc/sys/crypto/fips_enabled)" -eq 1
-node -p "require('crypto').fips"
-openssl version | grep -i fips
-CVE scanning gate:
-
-bash
-Copy
-Edit
-trivy image --format json myimage | jq '.Results[].Vulnerabilities[] | select(.Severity=="HIGH" or .Severity=="CRITICAL")'
-SBOM generation:
-
-bash
-Copy
-Edit
-syft dir:. -o cyclonedx-json > sbom.json
-🧱 Future Stretch Goals
-Cosign-based image signing
-
-Sigstore keyless signing from GitLab CI
-
-Rebuilderd-style reproducible build verifier
-
-In-toto attestations
-
-OCI-compatible release index (mailknight-index.json)
+This project builds hardened versions of open source software. Each upstream project maintains its own license. Mailknight's build automation and patches are available under the Apache 2.0 license.
