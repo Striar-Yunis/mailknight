@@ -141,7 +141,7 @@ else
     echo "✅ Security scan PASSED for $CONTAINER_NAME: No high/critical vulnerabilities found"
 fi
 
-# Generate GitLab CI reports (component-specific)
+# Generate CI reports (component-specific)
 cp "scan-results/$CONTAINER_NAME/trivy-vulnerabilities.json" "scan-results/$CONTAINER_NAME/trivy-dependency.json"
 cp "scan-results/$CONTAINER_NAME/trivy-vulnerabilities.json" "scan-results/$CONTAINER_NAME/trivy-container.json"
 

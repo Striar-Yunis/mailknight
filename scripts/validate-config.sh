@@ -7,17 +7,17 @@ set -euo pipefail
 echo "🔍 Validating Mailknight pipeline configuration..."
 
 # Check required environment variables (CI context)
-if [[ -n "${CI:-}" ]]; then
-    REQUIRED_VARS=(
-        "CI_PROJECT_DIR"
-    )
-
-    for var in "${REQUIRED_VARS[@]}"; do
-        if [[ -z "${!var:-}" ]]; then
-            echo "❌ Required environment variable $var is not set"
-            exit 1
-        fi
-    done
+if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" ]]; then
+    # We're in a CI environment, but different variables are required for different CI systems
+    if [[ -n "${CI_PROJECT_DIR:-}" ]]; then
+        # GitLab CI (legacy support)
+        echo "ℹ️  Detected GitLab CI environment"
+    elif [[ -n "${GITHUB_WORKSPACE:-}" ]]; then
+        # GitHub Actions
+        echo "ℹ️  Detected GitHub Actions environment"
+    else
+        echo "ℹ️  CI environment detected but workspace variable not found"
+    fi
 else
     echo "ℹ️  Running in local development mode"
 fi
@@ -37,15 +37,14 @@ for dir in "${REQUIRED_DIRS[@]}"; do
     fi
 done
 
-# Validate GitLab CI files
-CI_FILES=(
-    ".gitlab-ci.yml"
-    ".mailknight.yml"
+# Validate GitHub Actions workflow files
+WORKFLOW_FILES=(
+    ".github/workflows/main.yml"
 )
 
-for file in "${CI_FILES[@]}"; do
+for file in "${WORKFLOW_FILES[@]}"; do
     if [[ ! -f "$file" ]]; then
-        echo "❌ Required CI file $file does not exist"
+        echo "❌ Required workflow file $file does not exist"
         exit 1
     fi
     
@@ -56,9 +55,9 @@ for file in "${CI_FILES[@]}"; do
     fi
 done
 
-# Check if we have any projects configured
-if [[ ! "$(find projects -name '.gitlab-ci.yml' | wc -l)" -gt 0 ]]; then
-    echo "⚠️  No projects with CI configuration found"
+# Check if we have GitHub Actions workflows for projects
+if [[ ! -d ".github/workflows" ]] || [[ "$(find .github/workflows -name '*.yml' | wc -l)" -eq 0 ]]; then
+    echo "⚠️  No GitHub Actions workflows found"
 fi
 
 # Validate script permissions
@@ -69,3 +68,4 @@ echo "📊 Summary:"
 echo "   - Projects: $(find projects -maxdepth 1 -type d | wc -l | awk '{print $1-1}')"
 echo "   - Scripts: $(find scripts -name "*.sh" | wc -l)"
 echo "   - Patches: $(find patches -name "*.patch" | wc -l)"
+echo "   - GitHub Actions workflows: $(find .github/workflows -name "*.yml" 2>/dev/null | wc -l)"
