@@ -2,21 +2,14 @@
 
 Mailknight is a secure software supply chain automation system that builds FIPS-compliant, hardened container images for open source projects. This guide covers the development workflow, adding new projects, and understanding the build pipeline architecture.
 
-## CI/CD Systems
+## CI/CD System
 
-Mailknight supports **dual CI/CD platforms** for maximum flexibility:
+Mailknight uses **GitHub Actions** for comprehensive CI/CD automation:
 
-### GitLab CI (Primary)
-- **Main Pipeline**: `.gitlab-ci.yml` - orchestrates project builds
-- **Shared Templates**: `.mailknight.yml` - reusable job definitions
-- **Project Pipelines**: `projects/*/gitlab-ci.yml` - project-specific builds
-
-### GitHub Actions (Secondary)
+### GitHub Actions Architecture
 - **Main Workflow**: `.github/workflows/main.yml` - validation and coordination  
 - **Project Workflows**: `.github/workflows/argocd.yml` - ArgoCD specific builds
-- **Integration**: Calls GitLab CI templates when possible
-
-> **Note**: Both systems are maintained to support different deployment environments. GitLab CI provides more advanced features for enterprise deployments, while GitHub Actions offers better open source community integration.
+- **Matrix Builds**: Automatic generation of parallel builds for each project component
 
 ## Architecture
 
@@ -93,11 +86,9 @@ spec:
 
 ```
 mailknight/
-├── .gitlab-ci.yml              # Main GitLab CI orchestration  
 ├── .github/workflows/          # GitHub Actions workflows
 │   ├── main.yml               # Main validation workflow
 │   └── argocd.yml             # ArgoCD-specific workflow
-├── .mailknight.yml             # Shared CI templates and job definitions
 ├── projects/
 │   └── argocd/
 │       ├── mailknight.yaml     # Project configuration
@@ -107,8 +98,7 @@ mailknight/
 │       ├── Dockerfile.controller # Application controller
 │       ├── Dockerfile.applicationset-controller # ApplicationSet controller  
 │       ├── Dockerfile.dex      # Authentication service
-│       ├── Dockerfile.notification # Notification controller
-│       └── .gitlab-ci.yml      # Project-specific pipeline
+│       └── Dockerfile.notification # Notification controller
 ├── patches/argocd/             # Security patches by version
 │   ├── common/                # Common patches across versions
 │   ├── v3.0.11/              # Current version patches
@@ -179,7 +169,7 @@ The ArgoCD project showcases the complete multi-container workflow:
 ## Pipeline Features
 
 ### Matrix Builds
-Automatically generates build jobs for each container defined in the project configuration. The GitLab CI and GitHub Actions pipelines create parallel jobs for:
+Automatically generates build jobs for each container defined in the project configuration. The GitHub Actions pipeline creates parallel jobs for:
 - Building each component container
 - Scanning each component independently  
 - Testing FIPS compliance per component
@@ -204,27 +194,19 @@ Per component artifacts include:
 
 ### Triggering Builds
 
-**GitLab CI (Recommended):**
-```bash
-# Trigger ArgoCD multi-container build
-git commit --allow-empty -m "Build ArgoCD containers"
-git push origin main
-
-# Or trigger specific component changes
-git commit -m "Update ArgoCD server configuration"
-git push origin main
-```
-
 **GitHub Actions:**
 ```bash
 # Triggered automatically on push to paths:
 # - projects/argocd/**
 # - patches/argocd/**  
-# - .mailknight.yml
 # - scripts/**
 
 # Manual trigger via workflow dispatch
 gh workflow run argocd.yml
+
+# Or push changes to trigger build
+git commit -m "Update ArgoCD server configuration"
+git push origin main
 ```
 
 ### Local Development
@@ -311,24 +293,30 @@ Create component-specific Dockerfiles:
 
 ### 4. CI/CD Integration
 
-**GitLab CI:**
-Add to `.gitlab-ci.yml`:
-```yaml
-trigger-{project-name}:
-  stage: validate
-  trigger:
-    include: projects/{project-name}/.gitlab-ci.yml
-    strategy: depend
-  rules:
-    - changes:
-        - projects/{project-name}/**/*
-        - patches/{project-name}/**/*
-  variables:
-    PROJECT_NAME: "{project-name}"
-```
-
 **GitHub Actions:**
 Create `.github/workflows/{project-name}.yml` based on `argocd.yml` template.
+
+Update `.github/workflows/main.yml` to detect changes for the new project:
+```yaml
+# Add to detect-changes job outputs
+{project-name}-changed: ${{ steps.changes.outputs.{project-name} }}
+
+# Add to detect-changes job steps
+if git diff --name-only HEAD~1 HEAD | \
+   grep -E "(projects/{project-name}/|patches/{project-name}/|scripts/)" \
+   > /dev/null; then
+  echo "{project-name}=true" >> $GITHUB_OUTPUT
+else
+  echo "{project-name}=false" >> $GITHUB_OUTPUT
+fi
+
+# Add trigger job
+trigger-{project-name}:
+  needs: [validate-pipeline, detect-changes]
+  if: needs.detect-changes.outputs.{project-name}-changed == 'true'
+  uses: ./.github/workflows/{project-name}.yml
+  secrets: inherit
+```
 
 ### 5. Security Configuration
 - Add patches to `patches/{project-name}/v{version}/`
@@ -337,32 +325,22 @@ Create `.github/workflows/{project-name}.yml` based on `argocd.yml` template.
 
 ## Understanding CI Configuration
 
-### Why Dual CI Systems?
+### GitHub Actions Pipeline
 
-Mailknight supports both GitLab CI and GitHub Actions to provide:
+Mailknight uses GitHub Actions to provide comprehensive CI/CD automation with:
 
-- **Enterprise Flexibility**: GitLab CI for on-premise/enterprise environments
-- **Open Source Compatibility**: GitHub Actions for public repositories
-- **Feature Parity**: Both systems support the same security pipeline
-- **Migration Path**: Teams can choose their preferred CI platform
+- **Workflow Orchestration**: Main workflow detects changes and triggers appropriate project builds
+- **Matrix Builds**: Automatic parallel builds for multiple container components
+- **Security Integration**: Built-in vulnerability scanning and compliance testing
+- **Artifact Management**: Secure handling of build outputs and security reports
 
-### CI System Features
+### Pipeline Features
 
-| Feature | GitLab CI | GitHub Actions |
-|---------|-----------|----------------|
-| Matrix Builds | ✅ | ✅ |
-| Container Building | ✅ | ✅ |
-| Security Scanning | ✅ | ✅ |
-| FIPS Testing | ✅ | ✅ |
-| Artifact Management | ✅ | ✅ |
-| Enterprise Features | ✅ | Limited |
-
-### Choosing a CI System
-
-- **GitLab CI**: Recommended for enterprise deployments with advanced security requirements
-- **GitHub Actions**: Suitable for open source projects and teams already using GitHub
-
-Both systems use the same underlying scripts and maintain identical security standards.
+GitHub Actions provides enterprise-grade features including:
+- Container-based builds using Red Hat UBI8 for FIPS compliance
+- Integrated security scanning with SARIF reporting
+- Artifact retention and management
+- Conditional workflows and dependency management
 
 ## Security Features
 
@@ -373,4 +351,4 @@ Both systems use the same underlying scripts and maintain identical security sta
 - **Supply Chain Security**: SBOM generation, artifact signing
 - **VEX Support**: Component-specific vulnerability overrides
 
-Mailknight ensures each container component meets the same high security standards while allowing for different build requirements and optimizations.
+Mailknight ensures each container component meets the same high security standards while allowing for different build requirements and optimizations. The GitHub Actions pipeline provides enterprise-grade automation with comprehensive security scanning and compliance testing.

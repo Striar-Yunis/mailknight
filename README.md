@@ -4,7 +4,7 @@ Mailknight is a secure software supply chain automation system that builds harde
 
 ## 🏗️ Architecture
 
-Mailknight supports **multi-container projects** where each component has optimized build configurations, security scanning, and FIPS compliance testing. The system runs on both GitLab CI and GitHub Actions, using Red Hat UBI8 base images for FIPS 140-2 compliance.
+Mailknight supports **multi-container projects** where each component has optimized build configurations, security scanning, and FIPS compliance testing. The system runs on GitHub Actions, using Red Hat UBI8 base images for FIPS 140-2 compliance.
 
 ### Core Components
 
@@ -12,7 +12,7 @@ Mailknight supports **multi-container projects** where each component has optimi
 - **Patches**: Security patches and FIPS compliance fixes (`patches/argocd/`)
 - **VEX Statements**: Vulnerability exception documentation (`vex/argocd/`)
 - **Scripts**: Automation tools for building, scanning, and testing (`scripts/`)
-- **CI Templates**: Shared pipeline templates (`.mailknight.yml`)
+- **GitHub Actions**: CI/CD workflows (`.github/workflows/`)
 
 ## 🔧 Key Features
 
@@ -29,7 +29,7 @@ Mailknight supports **multi-container projects** where each component has optimi
 - **Supply Chain Security**: SBOM generation and artifact signing preparation
 
 ### Automated Pipelines
-- **GitLab CI & GitHub Actions**: Dual CI support for flexibility
+- **GitHub Actions**: Comprehensive CI/CD automation
 - **Matrix Builds**: Automatic multi-container builds
 - **Quality Gates**: Block releases on HIGH/CRITICAL CVEs
 - **Reproducible Builds**: SOURCE_DATE_EPOCH and build flags
@@ -65,23 +65,19 @@ Mailknight builds 6 hardened ArgoCD containers:
 ## 🚀 Quick Start
 
 ### Prerequisites
-- GitLab CI runner with Docker support OR GitHub Actions environment
+- GitHub Actions environment
 - Access to Red Hat UBI8 base images
 - Docker 24+ with BuildKit support
 
 ### Running a Build
 
-**GitLab CI:**
-```bash
-# Trigger ArgoCD multi-container build
-git commit --allow-empty -m "Build ArgoCD containers"
-git push origin main
-```
-
 **GitHub Actions:**
 ```bash
 # Trigger via workflow dispatch or push to trigger paths
 git push origin main
+
+# Or trigger ArgoCD-specific workflow
+gh workflow run argocd.yml
 ```
 
 ### Local Development
@@ -100,14 +96,11 @@ git push origin main
 
 ```
 mailknight/
-├── .gitlab-ci.yml              # GitLab CI orchestration
 ├── .github/workflows/          # GitHub Actions workflows
-├── .mailknight.yml             # Shared CI templates
 ├── projects/
 │   └── argocd/
 │       ├── mailknight.yaml     # Project configuration
-│       ├── Dockerfile.*        # Component Dockerfiles
-│       └── .gitlab-ci.yml      # Project-specific pipeline
+│       └── Dockerfile.*        # Component Dockerfiles
 ├── patches/argocd/             # Security patches per version
 ├── vex/argocd/                 # VEX vulnerability statements
 └── scripts/                    # Build automation scripts
