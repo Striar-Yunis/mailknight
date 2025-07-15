@@ -10,7 +10,7 @@ spec:
   
   # Global project settings
   settings:
-    goVersion: "1.21"
+    goVersion: "1.24.4"
     nodeVersion: "18"
     fipsEnabled: true
     buildFlags:
