@@ -43,7 +43,7 @@ case "$PROJECT_NAME" in
         export CGO_ENABLED=1
         export GOOS=linux
         export GOARCH=amd64
-        export CGO_CFLAGS="-fstack-protector-strong -D_FORTIFY_SOURCE=2"
+        export CGO_CFLAGS="-fstack-protector-strong -D_FORTIFY_SOURCE=2 -O2"
         export CGO_LDFLAGS="-Wl,-z,relro,-z,now"
         export OPENSSL_FORCE_FIPS_MODE=1
         
