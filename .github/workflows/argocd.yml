@@ -29,7 +29,7 @@ env:
   CFLAGS: "-fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE -O2"
   CXXFLAGS: "-fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE -O2"
   LDFLAGS: "-Wl,-z,relro,-z,now -pie"
-  CGO_CFLAGS: "-fstack-protector-strong -D_FORTIFY_SOURCE=2"
+  CGO_CFLAGS: "-fstack-protector-strong -D_FORTIFY_SOURCE=2 -O2"
   CGO_LDFLAGS: "-Wl,-z,relro,-z,now"
   
   # FIPS compliance
