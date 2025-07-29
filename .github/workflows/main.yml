@@ -97,6 +97,9 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const buildResult = '${{ needs.build-and-validate.result }}';
+            const argocdResult = '${{ needs.argocd-build.result }}';
+            
             const title = `🔧 Pipeline Failure - Auto Fix Request`;
             const body = `
             ## Pipeline Failure Detected
@@ -107,8 +110,8 @@ jobs:
             **Commit:** ${{ github.sha }}
             
             ### Failed Jobs:
-            ${needs.build-and-validate.result === 'failure' ? '- ❌ build-and-validate' : ''}
-            ${needs.argocd-build.result === 'failure' ? '- ❌ argocd-build' : ''}
+            ${buildResult === 'failure' ? '- ❌ build-and-validate' : ''}
+            ${argocdResult === 'failure' ? '- ❌ argocd-build' : ''}
             
             ### Next Steps:
             - [ ] Review pipeline logs

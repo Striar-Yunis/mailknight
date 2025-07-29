@@ -74,16 +74,29 @@ jobs:
             sh -c '
               echo "📦 Installing build dependencies..."
               microdnf update -y
-              microdnf install -y git wget curl ca-certificates gcc gcc-c++ make nodejs npm tar gzip python3 python3-pyyaml findutils file
+              microdnf install -y git wget curl ca-certificates gcc gcc-c++ make nodejs npm tar gzip python3 python3-pyyaml findutils file rng-tools
+              
+              echo "🎲 Installing entropy sources to fix curl SSL issues..."
+              microdnf install -y rng-tools haveged || true
+              # Generate entropy for SSL operations
+              dd if=/dev/urandom of=/dev/random count=1 bs=1024 2>/dev/null || true
               
               echo "🔧 Installing Go ${GO_VERSION}..."
               GO_URL="https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
-              curl -fsSL "$GO_URL" | tar -xz -C /usr/local
+              # Use wget as fallback if curl fails with entropy issues
+              if ! curl -fsSL "$GO_URL" | tar -xz -C /usr/local; then
+                echo "⚠️  curl failed, trying wget..."
+                wget -qO- "$GO_URL" | tar -xz -C /usr/local
+              fi
               export PATH="/usr/local/go/bin:$PATH"
               go version
               
               echo "🔍 Installing Syft for SBOM generation..."
-              curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin v${SYFT_VERSION}
+              # Use wget as fallback for Syft installation
+              if ! curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin v${SYFT_VERSION}; then
+                echo "⚠️  curl failed for Syft, trying wget..."
+                wget -qO- https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin v${SYFT_VERSION}
+              fi
               
               git config --global --add safe.directory /workspace
               
@@ -151,8 +164,21 @@ jobs:
             "notification") DOCKERFILE="Dockerfile.notification" ;;
           esac
           
+          # Install entropy sources first to fix SSL issues
+          echo "🎲 Installing entropy sources..."
+          sudo apt-get update -qq
+          sudo apt-get install -y rng-tools haveged || true
+          sudo systemctl start haveged || true
+          # Generate additional entropy
+          sudo dd if=/dev/urandom of=/dev/random count=1 bs=1024 2>/dev/null || true
+          
           # Install Docker for container operations
-          curl -fsSL https://get.docker.com -o get-docker.sh
+          echo "🐳 Installing Docker..."
+          # Use alternative Docker installation method to avoid curl SSL issues
+          if ! curl -fsSL https://get.docker.com -o get-docker.sh; then
+            echo "⚠️  curl failed, trying wget for Docker installation..."
+            wget -qO get-docker.sh https://get.docker.com
+          fi
           sudo sh get-docker.sh
           sudo usermod -aG docker $USER
           sudo systemctl start docker
@@ -164,7 +190,11 @@ jobs:
           # Install and run Trivy for security scanning
           echo "🔍 Installing Trivy scanner..."
           TRIVY_URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
-          curl -sL "$TRIVY_URL" | tar -xz -C /tmp
+          # Use wget as fallback if curl fails
+          if ! curl -sL "$TRIVY_URL" | tar -xz -C /tmp; then
+            echo "⚠️  curl failed, trying wget for Trivy..."
+            wget -qO- "$TRIVY_URL" | tar -xz -C /tmp
+          fi
           sudo mv /tmp/trivy /usr/local/bin/trivy
           chmod +x /usr/local/bin/trivy
           
