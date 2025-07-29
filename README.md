@@ -29,10 +29,13 @@ Mailknight supports **multi-container projects** where each component has optimi
 - **Supply Chain Security**: SBOM generation and artifact signing preparation
 
 ### Automated Pipelines
-- **GitHub Actions**: Comprehensive CI/CD automation
-- **Matrix Builds**: Automatic multi-container builds
+- **Simplified & LLM-Friendly**: Streamlined from 10+ jobs to 4 core jobs
+- **Copilot Integration**: Auto-runs when issues assigned to @copilot
+- **Auto-Fix Requests**: Creates issues automatically on pipeline failures
+- **GitHub Actions**: Comprehensive CI/CD automation with FIPS compliance
+- **Matrix Builds**: Automatic multi-container builds (6 ArgoCD components)
 - **Quality Gates**: Block releases on HIGH/CRITICAL CVEs
-- **Reproducible Builds**: SOURCE_DATE_EPOCH and build flags
+- **Reproducible Builds**: SOURCE_DATE_EPOCH and hardened build flags
 
 ## 📦 Example: ArgoCD Project
 
@@ -78,7 +81,26 @@ git push origin main
 
 # Or trigger ArgoCD-specific workflow
 gh workflow run argocd.yml
+
+# Auto-trigger for copilot issues
+# Simply assign any issue to @copilot for automated pipeline execution
 ```
+
+**Pipeline Structure (Simplified):**
+```yaml
+Main Pipeline (main.yml):
+  1. copilot-autorun      # Auto-trigger when issues assigned to @copilot
+  2. build-and-validate   # Config validation + change detection
+  3. argocd-build        # ArgoCD workflow (if changes detected)  
+  4. request-fixes       # Auto-create fix requests on failures
+
+ArgoCD Workflow (argocd.yml):
+  1. build-all-components # Fetch + Patch + Build (consolidated)
+  2. test-and-scan       # Security scan + FIPS test (matrix: 6 components)
+  3. release             # Release artifacts (tags/manual only)
+```
+
+See [PIPELINE.md](PIPELINE.md) for detailed documentation.
 
 ### Local Development
 ```bash
