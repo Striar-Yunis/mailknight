@@ -8,7 +8,7 @@
 FROM mailknight/nodejs-build-base:latest as ui-builder
 
 # Copy UI source code
-COPY source/ui/ /workspace/ui/
+COPY source/argocd/ui/ /workspace/ui/
 WORKDIR /workspace/ui
 
 # Build ArgoCD UI with FIPS compliance
@@ -29,14 +29,14 @@ RUN yarn install --network-timeout 200000 && \
 FROM mailknight/golang-build-base:latest as go-builder
 
 # Copy Go source code
-COPY source/ /workspace/
+COPY source/argocd/ /workspace/
 WORKDIR /workspace
 
 # Copy UI build artifacts from previous stage
 COPY --from=ui-builder /workspace/ui/dist/app /workspace/ui/dist/app
 
 # Download Go dependencies
-COPY source/go.* ./
+COPY source/argocd/go.* ./
 RUN go mod download
 
 # Build all ArgoCD components with hardening flags
@@ -47,14 +47,17 @@ ARG BUILD_DATE
 ARG GIT_TREE_STATE
 ARG GIT_COMMIT
 
-# Set build-time variables
-ENV BUILD_DATE=${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
-ENV GIT_COMMIT=${GIT_COMMIT:-$(git rev-parse --short HEAD)}
-ENV GIT_TAG=${GIT_TAG:-unknown}
-ENV GIT_TREE_STATE=${GIT_TREE_STATE:-clean}
-
 # Build with security hardening
-RUN GIT_COMMIT=$GIT_COMMIT \
+ARG BUILD_DATE
+ARG GIT_COMMIT  
+ARG GIT_TAG
+ARG GIT_TREE_STATE
+
+RUN BUILD_DATE=${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')} && \
+    GIT_COMMIT=${GIT_COMMIT:-$(git rev-parse --short HEAD)} && \
+    GIT_TAG=${GIT_TAG:-unknown} && \
+    GIT_TREE_STATE=${GIT_TREE_STATE:-clean} && \
+    GIT_COMMIT=$GIT_COMMIT \
     GIT_TREE_STATE=$GIT_TREE_STATE \
     GIT_TAG=$GIT_TAG \
     BUILD_DATE=$BUILD_DATE \
@@ -72,11 +75,12 @@ RUN syft dir:/workspace -o cyclonedx-json > /workspace/sbom.json
 # ==============================================================================
 # Final stage: Prepare build artifacts for consumption
 # ==============================================================================
-FROM scratch as artifacts
+FROM mailknight/runtime-base:latest AS artifacts
 
 # Copy all built artifacts
 COPY --from=go-builder /workspace/dist/ /binaries/
 COPY --from=go-builder /workspace/sbom.json /sbom.json
 COPY --from=ui-builder /workspace/ui/dist/app /ui/
 
-# This stage is used to extract artifacts, not run as a container
+# This stage is used to extract artifacts
+CMD ["echo", "Artifacts ready for extraction"]

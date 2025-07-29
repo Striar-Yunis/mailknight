@@ -12,7 +12,7 @@ LABEL name="mailknight/nodejs-build-base" \
 
 # Install build dependencies
 RUN dnf update -y && \
-    dnf install -y \
+    dnf install -y --allowerasing \
         git \
         gcc \
         gcc-c++ \

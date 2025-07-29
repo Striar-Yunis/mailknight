@@ -41,7 +41,7 @@ USER ${USERNAME}
 WORKDIR /app
 
 # Health check helper script
-COPY --chown=${USERNAME}:${GROUPNAME} <<EOF /usr/local/bin/health-check
+RUN cat > /usr/local/bin/health-check << 'EOF'
 #!/bin/sh
 # Generic health check script
 # Override in specific containers as needed

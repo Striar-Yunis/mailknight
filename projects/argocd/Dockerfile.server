@@ -53,13 +53,14 @@ RUN chmod +x /app/health
 # Expose server ports
 EXPOSE 8080 8083
 
-# Use tini for proper signal handling (install as root, use as appuser)
+# Install tini for proper signal handling (install as root, use as appuser)
 USER root
-RUN microdnf install -y tini && microdnf clean all
+RUN curl -fsSL -o /usr/local/bin/tini https://github.com/krallin/tini/releases/download/v0.19.0/tini-amd64 && \
+    chmod +x /usr/local/bin/tini
 USER appuser
 
 # Default command
-ENTRYPOINT ["/usr/bin/tini", "--"]
+ENTRYPOINT ["/usr/local/bin/tini", "--"]
 CMD ["/usr/local/bin/argocd-server"]
 
 # Container metadata

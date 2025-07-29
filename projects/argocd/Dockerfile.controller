@@ -1,33 +1,54 @@
-# ArgoCD Application Controller FIPS-Compliant Dockerfile
-# Extends base ArgoCD image for application controller component
+# ArgoCD Application Controller Runtime Container
+# Uses pre-built binaries from binary build stage
+# Based on secure runtime base container
 
-FROM ./Dockerfile as runtime-base
+FROM mailknight/runtime-base:latest
 
-# Copy application-controller binary
-COPY --from=builder /src/dist/argocd-application-controller /usr/local/bin/argocd-application-controller
-COPY --from=builder /src/dist/argocd /usr/local/bin/argocd
-
-# Set permissions
+# Switch to root temporarily for setup
 USER root
+
+# Copy pre-built binaries from build artifacts
+COPY binaries/argocd /usr/local/bin/argocd
+COPY binaries/argocd-application-controller /usr/local/bin/argocd-application-controller
+
+# Create symbolic links for compatibility
+RUN ln -sf /usr/local/bin/argocd /usr/local/bin/argocd-application-controller-main
+
+# Set secure permissions
 RUN chown root:root /usr/local/bin/argocd* && \
     chmod 755 /usr/local/bin/argocd*
 
+# Create ArgoCD configuration directories
+RUN mkdir -p /app/config/{ssh,tls,gpg/source,gpg/keys} && \
+    chown -R appuser:appuser /app/config && \
+    chmod 0700 /app/config/gpg/keys
+
+# Install tini for proper signal handling
+RUN curl -fsSL -o /usr/local/bin/tini https://github.com/krallin/tini/releases/download/v0.19.0/tini-amd64 && \
+    chmod +x /usr/local/bin/tini
+
 # Switch back to non-root user
-USER argocd
+USER appuser
 
-# Controller-specific environment
-ENV ARGOCD_APPLICATION_CONTROLLER_REPO_SERVER="argocd-repo-server:8081"
-ENV ARGOCD_APPLICATION_CONTROLLER_REPO_SERVER_TIMEOUT_SECONDS="60"
+# Controller-specific environment variables
+ENV ARGOCD_APPLICATION_CONTROLLER_REPO_SERVER=argocd-repo-server:8081 \
+    ARGOCD_APPLICATION_CONTROLLER_REPO_SERVER_TIMEOUT_SECONDS=60 \
+    ARGOCD_USER_ID=999
 
-# Health check for application-controller
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD ["/usr/local/bin/argocd", "version", "--client"] || exit 1
+# Create custom health check for ArgoCD application controller
+COPY --chown=appuser:appuser <<EOF /app/health
+#!/bin/sh
+# ArgoCD application controller health check
+exec /usr/local/bin/argocd version --client 2>/dev/null || exit 1
+EOF
+
+RUN chmod +x /app/health
 
 # Default command
-ENTRYPOINT ["/usr/local/bin/argocd-application-controller"]
-CMD ["--help"]
+ENTRYPOINT ["/usr/local/bin/tini", "--"]
+CMD ["/usr/local/bin/argocd-application-controller"]
 
-# Labels for metadata
+# Container metadata
 LABEL name="mailknight/argocd-application-controller" \
       component="application-controller" \
       version="v3.0.11-mailknight" \
