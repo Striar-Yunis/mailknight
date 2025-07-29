@@ -1,131 +1,78 @@
-# ArgoCD Repository Server FIPS-Compliant Dockerfile
-# Builds repo-server component with all required tools
+# ArgoCD Repository Server Runtime Container
+# Uses pre-built binaries from binary build stage
+# Based on secure runtime base container
 
-# Use builder stage
-FROM registry.access.redhat.com/ubi8/ubi:latest as builder
+FROM mailknight/runtime-base:latest
 
-# Install build dependencies
-RUN dnf update -y && \
-    dnf install -y \
-        git \
-        gcc \
-        gcc-c++ \
-        make \
-        curl \
-        wget \
-        ca-certificates \
-        openssl-devel \
-        krb5-devel \
-        libcom_err-devel && \
-    dnf clean all
+# Switch to root temporarily for setup
+USER root
 
-# Install FIPS-compliant Go
-ARG GO_VERSION
-RUN if [ -z "$GO_VERSION" ]; then \
-        echo "Error: GO_VERSION build argument is required" && exit 1; \
-    fi && \
-    GO_FULL_VERSION="${GO_VERSION}.5" && \
-    echo "Installing Go version ${GO_FULL_VERSION}" && \
-    curl -L "https://golang.org/dl/go${GO_FULL_VERSION}.linux-amd64.tar.gz" | \
-    tar -xz -C /usr/local
-ENV PATH="/usr/local/go/bin:$PATH"
-
-# Install Node.js with FIPS support
-ARG NODE_VERSION
-RUN if [ -z "$NODE_VERSION" ]; then \
-        echo "Error: NODE_VERSION build argument is required" && exit 1; \
-    fi && \
-    echo "Installing Node.js version ${NODE_VERSION}" && \
-    curl -fsSL https://rpm.nodesource.com/setup_${NODE_VERSION}.x | bash - && \
-    dnf install -y nodejs && \
-    dnf clean all
-
-# Set FIPS mode and build flags
-ENV OPENSSL_FORCE_FIPS_MODE=1
-ENV CGO_ENABLED=1
-ENV GOOS=linux
-ENV GOARCH=amd64
-ENV CGO_CFLAGS="-fstack-protector-strong -D_FORTIFY_SOURCE=2"
-ENV CGO_LDFLAGS="-Wl,-z,relro,-z,now"
-
-# Copy ArgoCD source
-COPY source/ /src/
-WORKDIR /src
-
-# Build all ArgoCD components with hardening flags
-RUN make build LDFLAGS="-linkmode external -extldflags '-static-pie -Wl,-z,relro,-z,now'" && \
-    strip dist/argocd-* && \
-    chmod 755 dist/argocd*
-
-# Runtime stage for repo-server component
-FROM registry.access.redhat.com/ubi8/ubi-minimal:latest
-
-# Install repo-server-specific dependencies
-RUN microdnf update -y && \
-    microdnf install -y \
-        ca-certificates \
-        tzdata \
+# Install repo-server-specific runtime dependencies and tools
+RUN microdnf install -y \
         git \
         git-lfs \
         openssh-clients \
         gnupg2 && \
     microdnf clean all
 
-# Install Helm
+# Install Helm for GitOps operations
 ARG HELM_VERSION=3.12.0
 RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 && \
     chmod 700 get_helm.sh && \
     ./get_helm.sh --version v${HELM_VERSION} && \
     rm get_helm.sh
 
-# Install Kustomize
+# Install Kustomize for GitOps operations
 ARG KUSTOMIZE_VERSION=5.1.1
-RUN curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash -s ${KUSTOMIZE_VERSION} /usr/local/bin
+RUN curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | \
+    bash -s ${KUSTOMIZE_VERSION} /usr/local/bin
 
-# Create non-root user
-RUN groupadd -r argocd && \
-    useradd -r -g argocd -s /bin/false argocd
+# Copy pre-built binaries from build artifacts
+COPY binaries/argocd /usr/local/bin/argocd
+COPY binaries/argocd-repo-server /usr/local/bin/argocd-repo-server
 
-# Copy repo-server binary
-COPY --from=builder /src/dist/argocd-repo-server /usr/local/bin/argocd-repo-server
-COPY --from=builder /src/dist/argocd /usr/local/bin/argocd
+# Create symbolic links for compatibility
+RUN ln -sf /usr/local/bin/argocd /usr/local/bin/argocd-repo-server-main
 
-# Set permissions
+# Set secure permissions
 RUN chown root:root /usr/local/bin/argocd* && \
     chmod 755 /usr/local/bin/argocd*
 
-# Create directories for repositories and GPG keys
-RUN mkdir -p /app/config/ssh && \
-    mkdir -p /app/config/tls && \
-    mkdir -p /app/config/gpg/source && \
-    mkdir -p /app/config/gpg/keys && \
-    chown -R argocd:argocd /app
+# Create ArgoCD repository and configuration directories
+RUN mkdir -p /app/config/{ssh,tls,gpg/source,gpg/keys} && \
+    mkdir -p /tmp/repos && \
+    chown -R appuser:appuser /app/config /tmp/repos && \
+    chmod 0700 /app/config/gpg/keys
 
-# Create working directory
-WORKDIR /app
+# Install tini for proper signal handling
+RUN microdnf install -y tini && microdnf clean all
 
-# Switch to non-root user
-USER argocd
+# Install tini for proper signal handling
+RUN curl -fsSL -o /usr/local/bin/tini https://github.com/krallin/tini/releases/download/v0.19.0/tini-amd64 && \
+    chmod +x /usr/local/bin/tini
 
-# Enable FIPS mode
-ENV OPENSSL_FORCE_FIPS_MODE=1
+# Switch back to non-root user
+USER appuser
 
-# Repo server-specific environment
-ENV ARGOCD_EXEC_TIMEOUT="90s"
-ENV ARGOCD_REPO_SERVER_STRICT_TLS="true"
+# Repo server-specific environment variables
+ENV ARGOCD_EXEC_TIMEOUT=90s \
+    ARGOCD_REPO_SERVER_STRICT_TLS=true \
+    ARGOCD_USER_ID=999 \
+    ARGOCD_REPO_CACHE_EXPIRATION=24h
 
-# Health check for repo-server
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD ["/usr/local/bin/argocd", "version", "--client"] || exit 1
+# Create custom health check for ArgoCD repo server
+COPY --chown=appuser:appuser argocd-repo-server-health.sh /app/health
+
+RUN chmod +x /app/health
 
 # Expose repo-server port
 EXPOSE 8081
 
 # Default command
-ENTRYPOINT ["/usr/local/bin/argocd-repo-server"]
-CMD ["--help"]
+ENTRYPOINT ["/usr/local/bin/tini", "--"]
+CMD ["/usr/local/bin/argocd-repo-server"]
 
-# Labels for metadata
+# Container metadata
 LABEL name="mailknight/argocd-repo-server" \
       component="repo-server" \
       version="v3.0.11-mailknight" \
