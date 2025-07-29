@@ -2,112 +2,132 @@ apiVersion: v1
 kind: MailknightProject
 metadata:
   name: argocd
-  description: "ArgoCD GitOps continuous delivery tool"
+  description: "ArgoCD GitOps continuous delivery tool - FIPS-compliant build"
+
+# This configuration defines how Mailknight builds secure, hardened ArgoCD containers
+# LLM-friendly documentation: Each section is clearly explained for easy understanding
 spec:
+  # Upstream source configuration
   upstream:
     repository: "https://github.com/argoproj/argo-cd.git"
-    version: "v3.0.11"
+    version: "v3.0.11"  # Version to build from upstream
   
-  # Global project settings
+  # Global build settings for all components
   settings:
-    goVersion: "1.24.4"
-    nodeVersion: "18"
-    fipsEnabled: true
+    goVersion: "1.24.4"      # Go compiler version for FIPS compliance
+    nodeVersion: "18"        # Node.js version for UI building
+    fipsEnabled: true        # Enforce FIPS 140-2 cryptographic standards
+    
+    # Security hardening flags applied to all builds
     buildFlags:
-      cflags: "-fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE"
-      cxxflags: "-fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE"
-      ldflags: "-Wl,-z,relro,-z,now -pie"
+      cflags: "-fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE"    # C compiler security flags
+      cxxflags: "-fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE"  # C++ compiler security flags  
+      ldflags: "-Wl,-z,relro,-z,now -pie"                             # Linker security flags
   
-  # Multiple containers for this project
+  # ArgoCD consists of 6 different container components
+  # Each has specific dependencies and build requirements
   containers:
+    # 1. API Server - Main REST API and web UI
     server:
-      description: "ArgoCD API Server"
+      description: "ArgoCD API Server - handles REST API and web UI"
       dockerfile: "Dockerfile.server"
       entrypoint: "/usr/local/bin/argocd-server"
-      ports: [8080, 8083]
+      ports: [8080, 8083]  # HTTP and HTTPS ports
       dependencies:
-        - git
-        - ca-certificates
-        - openssh-client
+        - git              # For Git repository operations
+        - ca-certificates  # For TLS certificate validation
+        - openssh-client   # For SSH-based Git access
       buildArgs:
         COMPONENT: "server"
       
+    # 2. Repository Server - Handles Git repo operations  
     repo-server:
-      description: "ArgoCD Repository Server"
+      description: "ArgoCD Repository Server - Git operations and manifest generation"
       dockerfile: "Dockerfile.repo-server"
       entrypoint: "/usr/local/bin/argocd-repo-server"
       ports: [8081]
       dependencies:
-        - git
-        - git-lfs
-        - ca-certificates
-        - openssh-client
-        - gnupg
-        - helm
-        - kustomize
+        - git              # Core Git functionality
+        - git-lfs          # Large file support
+        - ca-certificates  # TLS certificates
+        - openssh-client   # SSH Git access
+        - gnupg            # GPG signature verification
+        - helm             # Helm chart processing
+        - kustomize        # Kustomize manifest processing
       buildArgs:
         COMPONENT: "repo-server"
         
+    # 3. Application Controller - Core ArgoCD logic
     application-controller:
-      description: "ArgoCD Application Controller"
+      description: "ArgoCD Application Controller - main reconciliation engine"
       dockerfile: "Dockerfile.controller"
       entrypoint: "/usr/local/bin/argocd-application-controller"
       dependencies:
-        - ca-certificates
+        - ca-certificates  # Minimal dependencies for security
       buildArgs:
         COMPONENT: "application-controller"
         
+    # 4. ApplicationSet Controller - Multi-application management
     applicationset-controller:
-      description: "ArgoCD ApplicationSet Controller"
+      description: "ArgoCD ApplicationSet Controller - manages multiple applications" 
       dockerfile: "Dockerfile.applicationset-controller"
       entrypoint: "/usr/local/bin/argocd-applicationset-controller"
       dependencies:
-        - ca-certificates
+        - ca-certificates  # Minimal dependencies
       buildArgs:
         COMPONENT: "applicationset-controller"
         
+    # 5. Dex - Authentication service
     dex:
-      description: "ArgoCD Authentication (Dex)"
+      description: "ArgoCD Authentication (Dex) - OIDC/OAuth2 identity provider"
       dockerfile: "Dockerfile.dex"
       entrypoint: "/usr/local/bin/argocd-dex"
-      ports: [5556, 5557, 5558]
+      ports: [5556, 5557, 5558]  # Dex service ports
       dependencies:
-        - ca-certificates
+        - ca-certificates  # TLS certificate validation
       buildArgs:
         COMPONENT: "dex"
         
+    # 6. Notifications Controller - Alert/notification handling
     notification:
-      description: "ArgoCD Notifications Controller"
+      description: "ArgoCD Notifications Controller - handles alerts and webhooks"
       dockerfile: "Dockerfile.notification"
       entrypoint: "/usr/local/bin/argocd-notification"
       dependencies:
-        - ca-certificates
+        - ca-certificates  # Basic TLS support
       buildArgs:
         COMPONENT: "notification"
 
-  # Common patches applied to all containers
+  # Security patches applied during build process
   patches:
+    # Common patches applied to all components
     common:
-      - "patches/argocd/common/"
+      - "patches/argocd/common/"     # Cross-component security fixes
+    # Version-specific patches
     version-specific:
-      - "patches/argocd/v3.0.11/"
+      - "patches/argocd/v3.0.11/"   # Patches specific to this ArgoCD version
       
-  # Security scanning configuration
+  # Security scanning and compliance configuration
   security:
+    # Vulnerability scanning with Trivy
     vulnerabilityScanning:
-      enabled: true
-      severity: ["HIGH", "CRITICAL"]
-      failOnVulnerabilities: true
-    fipsCompliance:
-      enabled: true
-      openssl: true
-      runtime: true
-    sbom:
-      format: "cyclonedx"
-      enabled: true
+      enabled: true                    # Always scan for CVEs
+      severity: ["HIGH", "CRITICAL"]   # Block builds on high/critical vulnerabilities
+      failOnVulnerabilities: true     # Fail pipeline if vulnerable
       
-  # Testing configuration
+    # FIPS 140-2 compliance requirements
+    fipsCompliance:
+      enabled: true      # Enforce FIPS cryptographic standards
+      openssl: true      # Use FIPS-validated OpenSSL
+      runtime: true      # Verify FIPS at container runtime
+      
+    # Software Bill of Materials generation
+    sbom:
+      format: "cyclonedx"  # Industry-standard SBOM format
+      enabled: true        # Generate SBOM for supply chain transparency
+      
+  # Testing configuration for each component
   testing:
-    fipsCompliance: true
-    containerSecurity: true
-    runtimeTests: true
+    fipsCompliance: true     # Test FIPS compliance at runtime
+    containerSecurity: true  # Test container security hardening
+    runtimeTests: true       # Basic functionality testing
