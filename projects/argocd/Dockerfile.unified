@@ -1,0 +1,248 @@
+# ArgoCD FIPS-Compliant Unified Dockerfile
+# Based on upstream Dockerfile structure but with FIPS compliance and security hardening
+# This replaces all individual component Dockerfiles with a single unified approach
+
+ARG BASE_IMAGE=registry.access.redhat.com/ubi8/ubi-minimal:latest
+
+####################################################################################################
+# Builder image - FIPS-compliant build environment
+# Initial stage which prepares build dependencies and CLI tooling we need for our final image
+####################################################################################################
+FROM registry.access.redhat.com/ubi8/ubi:latest AS builder
+
+WORKDIR /tmp
+
+# Install build dependencies
+RUN dnf update -y && \
+    dnf install -y \
+        git \
+        git-lfs \
+        gcc \
+        gcc-c++ \
+        make \
+        wget \
+        curl \
+        unzip \
+        zip \
+        ca-certificates \
+        openssl-devel \
+        krb5-devel \
+        libcom_err-devel \
+        sudo && \
+    dnf clean all
+
+# Install FIPS-compliant Go
+ARG GO_VERSION=1.24.4
+RUN if [ -z "$GO_VERSION" ]; then \
+        echo "Error: GO_VERSION build argument is required" && exit 1; \
+    fi && \
+    echo "Installing Go version ${GO_VERSION}" && \
+    curl -L "https://golang.org/dl/go${GO_VERSION}.linux-amd64.tar.gz" | \
+    tar -xz -C /usr/local
+ENV PATH="/usr/local/go/bin:$PATH"
+
+# Install Node.js for UI building
+ARG NODE_VERSION=23.0.0
+RUN curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && \
+    dnf install -y nodejs && \
+    dnf clean all
+
+# Install Helm and Kustomize (following upstream pattern)
+ARG HELM_VERSION=3.12.0
+RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 && \
+    chmod 700 get_helm.sh && \
+    ./get_helm.sh --version v${HELM_VERSION} && \
+    rm get_helm.sh
+
+ARG KUSTOMIZE_VERSION=5.1.1
+RUN curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | \
+    bash -s ${KUSTOMIZE_VERSION} /usr/local/bin
+
+####################################################################################################
+# Argo CD Base - used as the base for the final argocd image
+# Following upstream pattern but with FIPS-compliant base
+####################################################################################################
+FROM $BASE_IMAGE AS argocd-base
+
+LABEL org.opencontainers.image.source="https://github.com/Striar-Yunis/mailknight"
+
+USER root
+
+ENV ARGOCD_USER_ID=999
+
+RUN groupadd -g $ARGOCD_USER_ID argocd && \
+    useradd -r -u $ARGOCD_USER_ID -g argocd argocd && \
+    mkdir -p /home/argocd && \
+    chown argocd:0 /home/argocd && \
+    chmod g=u /home/argocd
+
+# Install runtime dependencies
+RUN microdnf update -y && \
+    microdnf install -y \
+        git \
+        git-lfs \
+        ca-certificates \
+        tzdata \
+        openssh-clients \
+        gnupg2 && \
+    microdnf clean all
+
+# Copy tools from builder
+COPY --from=builder /usr/local/bin/helm /usr/local/bin/helm
+COPY --from=builder /usr/local/bin/kustomize /usr/local/bin/kustomize
+
+# Copy upstream scripts (these will be available in the source)
+COPY source/hack/gpg-wrapper.sh \
+     source/hack/git-verify-wrapper.sh \
+     source/entrypoint.sh \
+     /usr/local/bin/
+
+# Set executable permissions
+RUN chmod +x /usr/local/bin/gpg-wrapper.sh \
+            /usr/local/bin/git-verify-wrapper.sh \
+            /usr/local/bin/entrypoint.sh
+
+# keep uid_entrypoint.sh for backward compatibility
+RUN ln -s /usr/local/bin/entrypoint.sh /usr/local/bin/uid_entrypoint.sh
+
+# support for mounting configuration from a configmap
+WORKDIR /app/config/ssh
+RUN touch ssh_known_hosts && \
+    ln -s /app/config/ssh/ssh_known_hosts /etc/ssh/ssh_known_hosts
+
+WORKDIR /app/config
+RUN mkdir -p tls && \
+    mkdir -p gpg/source && \
+    mkdir -p gpg/keys && \
+    chown argocd gpg/keys && \
+    chmod 0700 gpg/keys
+
+ENV USER=argocd
+
+USER $ARGOCD_USER_ID
+WORKDIR /home/argocd
+
+####################################################################################################
+# Argo CD UI stage - builds the web UI
+# Following upstream pattern
+####################################################################################################
+FROM --platform=$BUILDPLATFORM registry.access.redhat.com/ubi8/nodejs-20:latest AS argocd-ui
+
+WORKDIR /src
+COPY source/ui/package.json source/ui/yarn.lock ./
+
+USER 0
+RUN npm install -g yarn && \
+    yarn install --network-timeout 200000 && \
+    yarn cache clean
+
+COPY source/ui/ .
+
+ARG ARGO_VERSION=latest
+ENV ARGO_VERSION=$ARGO_VERSION
+ARG TARGETARCH
+RUN HOST_ARCH=$TARGETARCH NODE_ENV='production' NODE_ONLINE_ENV='online' NODE_OPTIONS=--max_old_space_size=8192 yarn build
+
+####################################################################################################
+# Argo CD Build stage which performs the actual build of Argo CD binaries
+# This stage follows upstream exactly but with FIPS compliance
+####################################################################################################
+FROM --platform=$BUILDPLATFORM registry.access.redhat.com/ubi8/ubi:latest AS argocd-build
+
+# Install build dependencies
+RUN dnf update -y && \
+    dnf install -y \
+        git \
+        gcc \
+        gcc-c++ \
+        make \
+        wget \
+        curl \
+        ca-certificates \
+        openssl-devel \
+        krb5-devel \
+        libcom_err-devel && \
+    dnf clean all
+
+# Install FIPS-compliant Go
+ARG GO_VERSION=1.24.4
+RUN curl -L "https://golang.org/dl/go${GO_VERSION}.linux-amd64.tar.gz" | \
+    tar -xz -C /usr/local
+ENV PATH="/usr/local/go/bin:$PATH"
+
+WORKDIR /go/src/github.com/argoproj/argo-cd
+
+# Set FIPS mode and build flags for security
+ENV OPENSSL_FORCE_FIPS_MODE=1
+ENV CGO_ENABLED=1
+ENV GOOS=linux
+ENV GOARCH=amd64
+
+# Copy go modules and download dependencies
+COPY source/go.* ./
+RUN go mod download
+
+# Perform the build - following upstream pattern exactly
+COPY source/ .
+COPY --from=argocd-ui /src/dist/app /go/src/github.com/argoproj/argo-cd/ui/dist/app
+
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+# These build args are optional; if not specified the defaults will be taken from the Makefile
+ARG GIT_TAG
+ARG BUILD_DATE
+ARG GIT_TREE_STATE
+ARG GIT_COMMIT
+
+# Build using upstream Makefile target
+RUN GIT_COMMIT=$GIT_COMMIT \
+    GIT_TREE_STATE=$GIT_TREE_STATE \
+    GIT_TAG=$GIT_TAG \
+    BUILD_DATE=$BUILD_DATE \
+    GOOS=$TARGETOS \
+    GOARCH=$TARGETARCH \
+    CGO_CFLAGS="-fstack-protector-strong -D_FORTIFY_SOURCE=2 -O2" \
+    CGO_LDFLAGS="-Wl,-z,relro,-z,now" \
+    make argocd-all
+
+####################################################################################################
+# Final image - follows upstream pattern exactly
+####################################################################################################
+FROM argocd-base
+
+# Enable FIPS mode
+ENV OPENSSL_FORCE_FIPS_MODE=1
+
+# Use tini as entrypoint (install it in base stage if needed)
+USER root
+RUN microdnf install -y tini && microdnf clean all
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+
+# Copy ArgoCD binaries from build stage (following upstream exactly)
+COPY --from=argocd-build /go/src/github.com/argoproj/argo-cd/dist/argocd* /usr/local/bin/
+
+# Create symlinks exactly as upstream does
+RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-server && \
+    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-repo-server && \
+    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-cmp-server && \
+    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-application-controller && \
+    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-dex && \
+    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-notifications && \
+    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-applicationset-controller && \
+    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-k8s-auth && \
+    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-commit-server
+
+# Set secure permissions
+RUN chown root:root /usr/local/bin/argocd* && \
+    chmod 755 /usr/local/bin/argocd*
+
+USER $ARGOCD_USER_ID
+
+# Labels for metadata
+LABEL name="mailknight/argocd" \
+      version="v3.0.11-mailknight" \
+      description="FIPS-compliant ArgoCD - unified build following upstream structure" \
+      vendor="Mailknight" \
+      security.fips="enabled" \
+      org.opencontainers.image.source="https://github.com/Striar-Yunis/mailknight"

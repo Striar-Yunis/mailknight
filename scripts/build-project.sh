@@ -31,7 +31,7 @@ cd "$SOURCE_DIR"
 
 case "$PROJECT_NAME" in
     "argocd")
-        echo "🏗️  Building ArgoCD with Go and FIPS compliance"
+        echo "🏗️  Building ArgoCD with unified approach following upstream structure"
         
         # Ensure Go is available
         if ! command -v go &> /dev/null; then
@@ -39,53 +39,63 @@ case "$PROJECT_NAME" in
             exit 1
         fi
         
-        # Set FIPS-compliant build environment
+        # Set FIPS-compliant build environment (following upstream Makefile patterns)
         export CGO_ENABLED=1
         export GOOS=linux
         export GOARCH=amd64
         export CGO_CFLAGS="-fstack-protector-strong -D_FORTIFY_SOURCE=2 -O2"
         export CGO_LDFLAGS="-Wl,-z,relro,-z,now"
         export OPENSSL_FORCE_FIPS_MODE=1
+        export GODEBUG="tarinsecurepath=0,zipinsecurepath=0"
         
-        # Build with hardening flags
+        # Build with hardening flags using upstream Makefile targets
         BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
         GIT_COMMIT=$(git rev-parse --short HEAD)
+        GIT_TAG=${UPSTREAM_VERSION:-"unknown"}
+        GIT_TREE_STATE=$(if [ -z "`git status --porcelain`" ]; then echo "clean" ; else echo "dirty"; fi)
         
-        LDFLAGS=(
-            "-X github.com/argoproj/argo-cd/v3/common.version=${UPSTREAM_VERSION:-unknown}"
-            "-X github.com/argoproj/argo-cd/v3/common.buildDate=$BUILD_DATE"
-            "-X github.com/argoproj/argo-cd/v3/common.gitCommit=$GIT_COMMIT"
-            "-s -w"  # Strip symbols
-        )
+        # Use upstream Makefile to build single argocd binary (this is the correct approach)
+        echo "  Building single argocd binary using upstream Makefile..."
+        make argocd-all \
+            BUILD_DATE="$BUILD_DATE" \
+            GIT_COMMIT="$GIT_COMMIT" \
+            GIT_TAG="$GIT_TAG" \
+            GIT_TREE_STATE="$GIT_TREE_STATE" \
+            DIST_DIR="../../$BUILD_DIR" \
+            BIN_NAME="argocd"
         
-        # Build all ArgoCD components (v3.0.11+ uses single main.go with different binary names)
-        echo "  Building argocd CLI..."
-        go build -ldflags "${LDFLAGS[*]}" -o "../../$BUILD_DIR/argocd" ./cmd/main.go
+        # Create symlinks in build directory (following upstream pattern)
+        echo "  Creating component symlinks..."
+        cd "../../$BUILD_DIR"
+        ln -sf argocd argocd-server
+        ln -sf argocd argocd-repo-server
+        ln -sf argocd argocd-cmp-server
+        ln -sf argocd argocd-application-controller
+        ln -sf argocd argocd-dex
+        ln -sf argocd argocd-notifications
+        ln -sf argocd argocd-applicationset-controller
+        ln -sf argocd argocd-k8s-auth
+        ln -sf argocd argocd-commit-server
+        cd -
         
-        echo "  Building argocd-server..."
-        go build -ldflags "${LDFLAGS[*]}" -o "../../$BUILD_DIR/argocd-server" ./cmd/main.go
-        
-        echo "  Building argocd-repo-server..."
-        go build -ldflags "${LDFLAGS[*]}" -o "../../$BUILD_DIR/argocd-repo-server" ./cmd/main.go
-        
-        echo "  Building argocd-application-controller..."
-        go build -ldflags "${LDFLAGS[*]}" -o "../../$BUILD_DIR/argocd-application-controller" ./cmd/main.go
-        
-        echo "  Building argocd-dex..."
-        go build -ldflags "${LDFLAGS[*]}" -o "../../$BUILD_DIR/argocd-dex" ./cmd/main.go
-        
-        echo "  Building argocd-applicationset-controller..."
-        go build -ldflags "${LDFLAGS[*]}" -o "../../$BUILD_DIR/argocd-applicationset-controller" ./cmd/main.go
-        
-        echo "  Building argocd-notification..."
-        go build -ldflags "${LDFLAGS[*]}" -o "../../$BUILD_DIR/argocd-notification" ./cmd/main.go
-        
-        # Build UI if present
-        if [[ -f "package.json" ]]; then
+        # Build UI if present (following upstream pattern)
+        if [[ -d "ui" && -f "ui/package.json" ]]; then
             echo "  Building UI..."
-            npm ci --production
-            npm run build:prod
-            cp -r dist/app "../../$BUILD_DIR/ui"
+            cd ui
+            # Use yarn like upstream does
+            if command -v yarn &> /dev/null; then
+                yarn install --network-timeout 200000
+                NODE_ENV='production' NODE_ONLINE_ENV='online' NODE_OPTIONS=--max_old_space_size=8192 yarn build
+            else
+                npm ci --production
+                npm run build:prod
+            fi
+            # Copy UI build output
+            if [[ -d "dist/app" ]]; then
+                mkdir -p "../../$BUILD_DIR/ui"
+                cp -r dist/app "../../$BUILD_DIR/ui/"
+            fi
+            cd ..
         fi
         ;;
         
