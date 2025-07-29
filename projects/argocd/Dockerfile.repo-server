@@ -61,11 +61,7 @@ ENV ARGOCD_EXEC_TIMEOUT=90s \
     ARGOCD_REPO_CACHE_EXPIRATION=24h
 
 # Create custom health check for ArgoCD repo server
-COPY --chown=appuser:appuser <<EOF /app/health
-#!/bin/sh
-# ArgoCD repo server health check
-exec /usr/local/bin/argocd version --client 2>/dev/null || exit 1
-EOF
+COPY --chown=appuser:appuser argocd-repo-server-health.sh /app/health
 
 RUN chmod +x /app/health
 

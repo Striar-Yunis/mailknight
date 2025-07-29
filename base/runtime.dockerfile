@@ -41,17 +41,7 @@ USER ${USERNAME}
 WORKDIR /app
 
 # Health check helper script
-RUN cat > /usr/local/bin/health-check << 'EOF'
-#!/bin/sh
-# Generic health check script
-# Override in specific containers as needed
-if [ -f "/app/health" ]; then
-    exec /app/health "$@"
-else
-    echo "Health check not configured for this application"
-    exit 0
-fi
-EOF
+COPY health-check.sh /usr/local/bin/health-check
 
 # Make health check executable
 USER root

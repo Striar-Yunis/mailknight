@@ -36,11 +36,7 @@ ENV ARGOCD_APPLICATION_CONTROLLER_REPO_SERVER=argocd-repo-server:8081 \
     ARGOCD_USER_ID=999
 
 # Create custom health check for ArgoCD application controller
-COPY --chown=appuser:appuser <<EOF /app/health
-#!/bin/sh
-# ArgoCD application controller health check
-exec /usr/local/bin/argocd version --client 2>/dev/null || exit 1
-EOF
+COPY --chown=appuser:appuser argocd-controller-health.sh /app/health
 
 RUN chmod +x /app/health
 

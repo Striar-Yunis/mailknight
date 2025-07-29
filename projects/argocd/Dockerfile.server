@@ -42,11 +42,7 @@ ENV ARGOCD_SERVER_INSECURE=false \
     ARGOCD_USER_ID=999
 
 # Create custom health check for ArgoCD server
-COPY --chown=appuser:appuser <<EOF /app/health
-#!/bin/sh
-# ArgoCD server health check
-exec /usr/local/bin/argocd admin settings rbac can get applications --server localhost:8080 --plaintext --insecure 2>/dev/null || exit 1
-EOF
+COPY --chown=appuser:appuser argocd-server-health.sh /app/health
 
 RUN chmod +x /app/health
 
