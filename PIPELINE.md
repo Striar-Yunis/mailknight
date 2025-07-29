@@ -48,6 +48,31 @@ Jobs:
 - Environment variables clearly defined with purposes
 - Component descriptions in `mailknight.yaml`
 
+## 🔧 Common Issues and Fixes
+
+### Issue: curl SSL randomness errors
+**Symptom**: `curl: (35) Insufficient randomness`
+**Solution**: Install entropy sources (rng-tools, haveged) and use wget fallback
+```bash
+# Fixed in workflows by adding:
+microdnf install -y rng-tools haveged
+sudo apt-get install -y rng-tools haveged
+# Generate entropy: dd if=/dev/urandom of=/dev/random
+# Fallback: wget instead of curl
+```
+
+### Issue: GitHub Actions script context errors  
+**Symptom**: `ReferenceError: needs is not defined`
+**Solution**: Pass job results as script parameters instead of accessing needs context
+```javascript
+// Before (broken):
+${needs.build-and-validate.result === 'failure' ? '...' : ''}
+
+// After (fixed):
+const buildResult = '${{ needs.build-and-validate.result }}';
+${buildResult === 'failure' ? '...' : ''}
+```
+
 ### Logical Flow
 - Sequential jobs with clear dependencies
 - Consolidated operations reduce complexity
