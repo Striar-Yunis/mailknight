@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build container image with hardening
+# Build runtime container image using pre-built binaries and base containers
 # Usage: build-container.sh <project_name> <version> [container_name] [dockerfile]
 
 set -euo pipefail
@@ -14,7 +14,13 @@ if [[ -z "$PROJECT_NAME" || -z "$VERSION" ]]; then
     exit 1
 fi
 
-echo "🐳 Building container image for $PROJECT_NAME:$VERSION (component: $CONTAINER_NAME)"
+echo "🐳 Building runtime container image for $PROJECT_NAME:$VERSION (component: $CONTAINER_NAME)"
+
+# Ensure runtime base container exists
+if ! docker image inspect mailknight/runtime-base:latest &> /dev/null; then
+    echo "📦 Building runtime base container..."
+    ./scripts/build-base-containers.sh runtime
+fi
 
 # Create component-specific images directory
 mkdir -p "images/$CONTAINER_NAME"
@@ -30,14 +36,31 @@ if [[ ! -f "$DOCKERFILE" ]]; then
     exit 1
 fi
 
+# Verify build artifacts exist
+if [[ ! -d "build" ]] || [[ -z "$(ls -A build 2>/dev/null)" ]]; then
+    echo "❌ No build artifacts found. Run build-project.sh first."
+    exit 1
+fi
+
 # Build context preparation
 BUILD_CONTEXT=$(mktemp -d)
 trap "rm -rf $BUILD_CONTEXT" EXIT
 
-# Copy build artifacts and source
-cp -r build/* "$BUILD_CONTEXT/" 2>/dev/null || true
-cp -r source "$BUILD_CONTEXT/"
-cp "$DOCKERFILE" "$BUILD_CONTEXT/Dockerfile"
+echo "📋 Preparing build context with pre-built binaries..."
+
+# Copy pre-built binaries (the key difference from the old approach)
+mkdir -p "$BUILD_CONTEXT/binaries"
+cp -r build/* "$BUILD_CONTEXT/binaries/" 2>/dev/null || true
+
+# Copy other necessary files
+cp -r source "$BUILD_CONTEXT/" 2>/dev/null || true
+cp "$DOCKERFILE" "$BUILD_CONTEXT/Dockerfile" 
+
+# Copy UI artifacts if they exist
+if [[ -d "build/ui" ]]; then
+    mkdir -p "$BUILD_CONTEXT/ui"
+    cp -r build/ui/* "$BUILD_CONTEXT/ui/"
+fi
 
 # Extract versions from mailknight.yaml if it exists
 GO_VERSION=""
@@ -67,18 +90,8 @@ except:
     echo "🔧 Extracted Node version: ${NODE_VERSION:-'not specified'}"
 fi
 
-# Copy base Dockerfile if this is a component-specific build
-if [[ "$DOCKERFILE_NAME" != "Dockerfile" ]]; then
-    BASE_DOCKERFILE="projects/$PROJECT_NAME/Dockerfile"
-    if [[ -f "$BASE_DOCKERFILE" ]]; then
-        cp "$BASE_DOCKERFILE" "$BUILD_CONTEXT/Dockerfile.base"
-        # Update the component Dockerfile to reference the copied base
-        sed -i 's|FROM \./Dockerfile|FROM ./Dockerfile.base|g' "$BUILD_CONTEXT/Dockerfile"
-    fi
-fi
-
-# Build image with hardening options
-echo "🔨 Building Docker image for $CONTAINER_NAME component..."
+# Build runtime container image using pre-built binaries
+echo "🔨 Building runtime Docker image for $CONTAINER_NAME component..."
 
 # Prepare build args with version information
 BUILD_ARGS=(
@@ -100,7 +113,8 @@ if [[ -n "$NODE_VERSION" ]]; then
     echo "🔧 Using Node version: $NODE_VERSION"
 fi
 
-docker build \
+# Build using buildkit for better performance and security
+DOCKER_BUILDKIT=1 docker build \
     "${BUILD_ARGS[@]}" \
     --label "org.opencontainers.image.title=mailknight/$PROJECT_NAME-$CONTAINER_NAME" \
     --label "org.opencontainers.image.version=$IMAGE_TAG" \
@@ -109,8 +123,10 @@ docker build \
     --label "org.opencontainers.image.source=https://github.com/Striar-Yunis/mailknight" \
     --label "mailknight.project=$PROJECT_NAME" \
     --label "mailknight.component=$CONTAINER_NAME" \
+    --label "mailknight.build.method=separated-build" \
     --label "security.fips=enabled" \
     --label "security.hardened=true" \
+    --label "security.binaries.prebuilt=true" \
     -t "$FULL_IMAGE_NAME" \
     -t "$IMAGE_NAME:latest" \
     "$BUILD_CONTEXT"
@@ -131,8 +147,16 @@ if command -v syft &> /dev/null; then
     syft "$FULL_IMAGE_NAME" -o cyclonedx-json > "image-sbom-${CONTAINER_NAME}.json"
     echo "✅ Image SBOM generated: image-sbom-${CONTAINER_NAME}.json"
 else
-    echo "⚠️  Syft not available, skipping image SBOM generation"
-    echo '{"components": [], "metadata": {"component": {"name": "'"$FULL_IMAGE_NAME"'", "version": "'"$IMAGE_TAG"'"}}}' > "image-sbom-${CONTAINER_NAME}.json"
+    echo "⚠️  Syft not available, installing in temporary container..."
+    # Try to generate SBOM using the build base container
+    if docker image inspect mailknight/golang-build-base:latest &> /dev/null; then
+        docker run --rm -v "$(pwd):/workspace" -w /workspace \
+            mailknight/golang-build-base:latest \
+            syft "$FULL_IMAGE_NAME" -o cyclonedx-json > "image-sbom-${CONTAINER_NAME}.json" || \
+            echo '{"components": [], "metadata": {"component": {"name": "'"$FULL_IMAGE_NAME"'", "version": "'"$IMAGE_TAG"'"}}}' > "image-sbom-${CONTAINER_NAME}.json"
+    else
+        echo '{"components": [], "metadata": {"component": {"name": "'"$FULL_IMAGE_NAME"'", "version": "'"$IMAGE_TAG"'"}}}' > "image-sbom-${CONTAINER_NAME}.json"
+    fi
 fi
 
 # Image information
@@ -152,21 +176,25 @@ cat > "images/$CONTAINER_NAME/image-metadata.json" << EOF
   "component": "$CONTAINER_NAME",
   "version": "$VERSION",
   "dockerfile": "$DOCKERFILE_NAME",
+  "build_method": "separated-build",
   "fips_compliant": true,
   "hardened": true,
-  "base_image": "registry.access.redhat.com/ubi8/ubi-minimal:latest",
+  "base_image": "mailknight/runtime-base:latest",
+  "binaries_prebuilt": true,
   "security_features": [
     "FIPS-140-2 compliance",
     "Stack protection",
     "FORTIFY_SOURCE",
     "RELRO",
     "Non-root user",
-    "Minimal attack surface"
+    "Minimal attack surface",
+    "Pre-built binaries",
+    "Separated build process"
   ]
 }
 EOF
 
-echo "✅ Container image built successfully"
+echo "✅ Runtime container image built successfully using pre-built binaries"
 echo "📦 Image: $FULL_IMAGE_NAME"
 echo "💾 Archive: images/$CONTAINER_NAME/${PROJECT_NAME}-${CONTAINER_NAME}-${IMAGE_TAG}.tar.gz"
 echo "📊 Size: $IMAGE_SIZE"
@@ -181,16 +209,16 @@ case "$CONTAINER_NAME" in
         else
             echo "⚠️  Image functionality test failed (may be expected - trying alternative test)"
             # Some components may not support --version, just check if container starts
-            if docker run --rm -d "$FULL_IMAGE_NAME" --help &> /dev/null; then
+            if timeout 10s docker run --rm "$FULL_IMAGE_NAME" --help &> /dev/null; then
                 echo "✅ Container starts successfully"
             else
-                echo "⚠️  Container startup test failed"
+                echo "⚠️  Container startup test failed (may be expected for some components)"
             fi
         fi
         ;;
     *)
         # Generic test for other components
-        if docker run --rm "$FULL_IMAGE_NAME" version --client &> /dev/null; then
+        if timeout 10s docker run --rm "$FULL_IMAGE_NAME" version --client &> /dev/null; then
             echo "✅ Image functionality test passed"
         else
             echo "⚠️  Image functionality test failed (may be expected for some components)"

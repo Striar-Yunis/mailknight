@@ -1,112 +1,68 @@
-# ArgoCD Server FIPS-Compliant Dockerfile
-# Builds server component from base ArgoCD image
+# ArgoCD Server Runtime Container
+# Uses pre-built binaries from binary build stage
+# Based on secure runtime base container
 
-# Use builder stage from base Dockerfile
-FROM registry.access.redhat.com/ubi8/ubi:latest as builder
+FROM mailknight/runtime-base:latest
 
-# Install build dependencies
-RUN dnf update -y && \
-    dnf install -y \
-        git \
-        gcc \
-        gcc-c++ \
-        make \
-        curl \
-        wget \
-        ca-certificates \
-        openssl-devel \
-        krb5-devel \
-        libcom_err-devel && \
-    dnf clean all
+# Switch to root temporarily for setup
+USER root
 
-# Install FIPS-compliant Go
-ARG GO_VERSION
-RUN if [ -z "$GO_VERSION" ]; then \
-        echo "Error: GO_VERSION build argument is required" && exit 1; \
-    fi && \
-    GO_FULL_VERSION="${GO_VERSION}.5" && \
-    echo "Installing Go version ${GO_FULL_VERSION}" && \
-    curl -L "https://golang.org/dl/go${GO_FULL_VERSION}.linux-amd64.tar.gz" | \
-    tar -xz -C /usr/local
-ENV PATH="/usr/local/go/bin:$PATH"
-
-# Install Node.js with FIPS support
-ARG NODE_VERSION
-RUN if [ -z "$NODE_VERSION" ]; then \
-        echo "Error: NODE_VERSION build argument is required" && exit 1; \
-    fi && \
-    echo "Installing Node.js version ${NODE_VERSION}" && \
-    curl -fsSL https://rpm.nodesource.com/setup_${NODE_VERSION}.x | bash - && \
-    dnf install -y nodejs && \
-    dnf clean all
-
-# Set FIPS mode and build flags
-ENV OPENSSL_FORCE_FIPS_MODE=1
-ENV CGO_ENABLED=1
-ENV GOOS=linux
-ENV GOARCH=amd64
-ENV CGO_CFLAGS="-fstack-protector-strong -D_FORTIFY_SOURCE=2"
-ENV CGO_LDFLAGS="-Wl,-z,relro,-z,now"
-
-# Copy ArgoCD source
-COPY source/ /src/
-WORKDIR /src
-
-# Build all ArgoCD components with hardening flags
-RUN make build LDFLAGS="-linkmode external -extldflags '-static-pie -Wl,-z,relro,-z,now'" && \
-    strip dist/argocd-* && \
-    chmod 755 dist/argocd*
-
-# Runtime stage for server component
-FROM registry.access.redhat.com/ubi8/ubi-minimal:latest
-
-# Install server-specific dependencies
-RUN microdnf update -y && \
-    microdnf install -y \
-        ca-certificates \
-        tzdata \
+# Install server-specific runtime dependencies
+RUN microdnf install -y \
         git \
         openssh-clients && \
     microdnf clean all
 
-# Create non-root user
-RUN groupadd -r argocd && \
-    useradd -r -g argocd -s /bin/false argocd
+# Copy pre-built binaries from build artifacts
+COPY binaries/argocd /usr/local/bin/argocd
+COPY binaries/argocd-server /usr/local/bin/argocd-server
 
-# Copy server binary
-COPY --from=builder /src/dist/argocd-server /usr/local/bin/argocd-server
-COPY --from=builder /src/dist/argocd /usr/local/bin/argocd
+# Create symbolic links for compatibility (ArgoCD v3+ uses single binary with different entry points)
+RUN ln -sf /usr/local/bin/argocd /usr/local/bin/argocd-server-main
 
-# Set permissions
+# Set secure permissions
 RUN chown root:root /usr/local/bin/argocd* && \
     chmod 755 /usr/local/bin/argocd*
 
-# Create working directory
-RUN mkdir -p /app && chown argocd:argocd /app
-WORKDIR /app
+# Create ArgoCD configuration directories
+RUN mkdir -p /app/config/{ssh,tls,gpg/source,gpg/keys} && \
+    chown -R appuser:appuser /app/config && \
+    chmod 0700 /app/config/gpg/keys
 
-# Switch to non-root user
-USER argocd
+# SSH known hosts support
+RUN touch /app/config/ssh/ssh_known_hosts && \
+    ln -s /app/config/ssh/ssh_known_hosts /etc/ssh/ssh_known_hosts
 
-# Enable FIPS mode
-ENV OPENSSL_FORCE_FIPS_MODE=1
+# Switch back to non-root user
+USER appuser
 
-# Server-specific environment
-ENV ARGOCD_SERVER_INSECURE="false"
-ENV ARGOCD_SERVER_ROOTPATH="/"
+# Server-specific environment variables
+ENV ARGOCD_SERVER_INSECURE=false \
+    ARGOCD_SERVER_ROOTPATH=/ \
+    ARGOCD_USER_ID=999
 
-# Health check for server
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD ["/usr/local/bin/argocd", "admin", "settings", "rbac", "can", "get", "applications", "--server", "localhost:8080", "--plaintext", "--insecure"] || exit 1
+# Create custom health check for ArgoCD server
+COPY --chown=appuser:appuser <<EOF /app/health
+#!/bin/sh
+# ArgoCD server health check
+exec /usr/local/bin/argocd admin settings rbac can get applications --server localhost:8080 --plaintext --insecure 2>/dev/null || exit 1
+EOF
+
+RUN chmod +x /app/health
 
 # Expose server ports
 EXPOSE 8080 8083
 
-# Default command
-ENTRYPOINT ["/usr/local/bin/argocd-server"]
-CMD ["--help"]
+# Use tini for proper signal handling (install as root, use as appuser)
+USER root
+RUN microdnf install -y tini && microdnf clean all
+USER appuser
 
-# Labels for metadata
+# Default command
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/usr/local/bin/argocd-server"]
+
+# Container metadata
 LABEL name="mailknight/argocd-server" \
       component="server" \
       version="v3.0.11-mailknight" \

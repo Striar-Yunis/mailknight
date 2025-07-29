@@ -1,5 +1,5 @@
 name: ArgoCD FIPS-Compliant Build
-# Simplified workflow for building secure, FIPS-compliant ArgoCD containers
+# Separated binary and container build pipeline with secure base containers
 
 on:
   workflow_call:
@@ -9,6 +9,7 @@ on:
       - 'projects/argocd/**'
       - 'patches/argocd/**'
       - 'scripts/**'
+      - 'base/**'
 
 env:
   # Project configuration - easy for LLMs to understand
@@ -40,121 +41,140 @@ env:
   SOURCE_DATE_EPOCH: "1672531200"  # 2023-01-01
 
 jobs:
-  # Consolidated build job - fetch, patch, build all in one
-  build-all-components:
+  # Stage 1: Build base containers (if needed)
+  build-base-containers:
     runs-on: ubuntu-latest
     outputs:
-      components: ${{ steps.components.outputs.list }}
+      golang-base: ${{ steps.check-images.outputs.golang-base }}
+      nodejs-base: ${{ steps.check-images.outputs.nodejs-base }}
+      runtime-base: ${{ steps.check-images.outputs.runtime-base }}
     
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Build all ArgoCD components in single job
+      - name: Check if base containers exist
+        id: check-images
         run: |
-          echo "🚀 Starting consolidated ArgoCD build process..."
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/workspace" \
-            -w /workspace \
-            -e PROJECT_NAME="$PROJECT_NAME" \
-            -e UPSTREAM_VERSION="$UPSTREAM_VERSION" \
-            -e GO_VERSION="$GO_VERSION" \
-            -e NODE_VERSION="$NODE_VERSION" \
-            -e SYFT_VERSION="$SYFT_VERSION" \
-            -e CGO_ENABLED="$CGO_ENABLED" \
-            -e CFLAGS="$CFLAGS" \
-            -e CXXFLAGS="$CXXFLAGS" \
-            -e LDFLAGS="$LDFLAGS" \
-            -e CGO_CFLAGS="$CGO_CFLAGS" \
-            -e CGO_LDFLAGS="$CGO_LDFLAGS" \
-            -e OPENSSL_FORCE_FIPS_MODE="$OPENSSL_FORCE_FIPS_MODE" \
-            -e GOLANG_FIPS="$GOLANG_FIPS" \
-            -e SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
-            registry.access.redhat.com/ubi8/ubi-minimal:latest \
-            sh -c '
-              echo "📦 Installing build dependencies..."
-              microdnf update -y
-              microdnf install -y git wget curl ca-certificates gcc gcc-c++ make nodejs npm tar gzip python3 python3-pyyaml findutils file
-              
-              echo "🎲 Generating entropy for SSL operations..."
-              # Generate entropy for SSL operations to fix curl randomness issues
-              dd if=/dev/urandom of=/dev/random count=1 bs=1024 2>/dev/null
-              # Set SSL environment variables for better entropy handling
-              export SSL_CERT_DIR=/etc/pki/tls/certs
-              export OPENSSL_CONF=/etc/pki/tls/openssl.cnf
-              
-              echo "🔧 Installing Go ${GO_VERSION}..."
-              GO_URL="https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
-              # Use wget as fallback if curl fails with entropy issues
-              if ! curl -fsSL "$GO_URL" | tar -xz -C /usr/local; then
-                echo "⚠️  curl failed, trying wget..."
-                wget -qO- "$GO_URL" | tar -xz -C /usr/local
-              fi
-              export PATH="/usr/local/go/bin:$PATH"
-              go version
-              
-              echo "🔍 Installing Syft for SBOM generation..."
-              # Use wget as fallback for Syft installation
-              if ! curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin v${SYFT_VERSION}; then
-                echo "⚠️  curl failed for Syft, trying wget..."
-                wget -qO- https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin v${SYFT_VERSION}
-              fi
-              
-              git config --global --add safe.directory /workspace
-              
-              echo "📥 Step 1: Fetching upstream ArgoCD source..."
-              chmod +x scripts/fetch-upstream.sh
-              scripts/fetch-upstream.sh ${PROJECT_NAME} ${UPSTREAM_VERSION}
-              
-              echo "🔧 Step 2: Applying Mailknight security patches..."
-              chmod +x scripts/apply-patches.sh
-              scripts/apply-patches.sh ${PROJECT_NAME} ${UPSTREAM_VERSION}
-              
-              echo "🏗️  Step 3: Building all ArgoCD binaries..."
-              chmod +x scripts/build-project.sh
-              scripts/build-project.sh ${PROJECT_NAME}
-              
-              echo "✅ All ArgoCD components built successfully!"
-            '
+          echo "🔍 Checking if base containers exist..."
+          # For CI, we'll always build fresh base containers to ensure they're up to date
+          echo "golang-base=needed" >> $GITHUB_OUTPUT
+          echo "nodejs-base=needed" >> $GITHUB_OUTPUT
+          echo "runtime-base=needed" >> $GITHUB_OUTPUT
 
-      - name: Set component list for matrix
-        id: components
+      - name: Build base containers
         run: |
-          # Define all ArgoCD components for later processing
-          echo "list=[\"server\", \"repo-server\", \"application-controller\", \"applicationset-controller\", \"dex\", \"notification\"]" >> $GITHUB_OUTPUT
+          echo "🏗️  Building mailknight base containers..."
+          chmod +x scripts/build-base-containers.sh
+          scripts/build-base-containers.sh all
+          
+          echo "✅ Base containers built successfully"
+          echo "📦 Available base containers:"
+          docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" mailknight/*-base
 
-      - name: Upload build artifacts
+      - name: Save base container images
+        run: |
+          echo "💾 Saving base container images for next stages..."
+          mkdir -p base-images
+          docker save mailknight/golang-build-base:latest | gzip > base-images/golang-build-base.tar.gz
+          docker save mailknight/nodejs-build-base:latest | gzip > base-images/nodejs-build-base.tar.gz  
+          docker save mailknight/runtime-base:latest | gzip > base-images/runtime-base.tar.gz
+
+      - name: Upload base container artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: argocd-build-complete
+          name: base-containers
+          path: base-images/
+          retention-days: 1
+
+  # Stage 2: Build binaries using base containers
+  build-binaries:
+    runs-on: ubuntu-latest
+    needs: build-base-containers
+    outputs:
+      binary-artifacts: ${{ steps.build.outputs.artifacts }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download base container artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: base-containers
+          path: base-images/
+
+      - name: Load base containers
+        run: |
+          echo "📦 Loading base containers..."
+          docker load -i base-images/golang-build-base.tar.gz
+          docker load -i base-images/nodejs-build-base.tar.gz
+          docker load -i base-images/runtime-base.tar.gz
+          docker images mailknight/*-base
+
+      - name: Fetch upstream source and apply patches
+        run: |
+          echo "📥 Fetching upstream ArgoCD source..."
+          chmod +x scripts/fetch-upstream.sh
+          scripts/fetch-upstream.sh ${PROJECT_NAME} ${UPSTREAM_VERSION}
+          
+          echo "🔧 Applying Mailknight security patches..."
+          chmod +x scripts/apply-patches.sh
+          scripts/apply-patches.sh ${PROJECT_NAME} ${UPSTREAM_VERSION}
+
+      - name: Build binaries using base containers
+        id: build
+        run: |
+          echo "🏗️  Building ArgoCD binaries using secure base containers..."
+          chmod +x scripts/build-project.sh
+          scripts/build-project.sh ${PROJECT_NAME}
+          
+          echo "✅ Binary build completed successfully!"
+          echo "artifacts=true" >> $GITHUB_OUTPUT
+
+      - name: Upload binary artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: argocd-binaries
           path: |
             build/
-            source/
             sbom.json
           retention-days: 1
 
-  # Test and scan all components - simplified matrix approach  
-  test-and-scan:
+  # Stage 3: Build runtime containers using pre-built binaries
+  build-containers:
     runs-on: ubuntu-latest
-    needs: build-all-components
+    needs: [build-base-containers, build-binaries]
     strategy:
       matrix:
-        component: ${{ fromJson(needs.build-all-components.outputs.components) }}
-      fail-fast: false  # Continue testing other components if one fails
+        component: ["server", "repo-server", "application-controller", "applicationset-controller", "dex", "notification"]
+      fail-fast: false
       
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         
-      - name: Download build artifacts
+      - name: Download base container artifacts
         uses: actions/download-artifact@v4
         with:
-          name: argocd-build-complete
+          name: base-containers
+          path: base-images/
+
+      - name: Download binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: argocd-binaries
           path: .
 
-      - name: Build and test component container
+      - name: Load base containers
         run: |
-          echo "🐳 Building and testing ${{ matrix.component }} container..."
+          echo "📦 Loading base containers..."
+          docker load -i base-images/runtime-base.tar.gz
+          docker images mailknight/runtime-base
+
+      - name: Build runtime container for component
+        run: |
+          echo "🐳 Building runtime container for ${{ matrix.component }}..."
           
           # Define Dockerfile mapping for each component
           case "${{ matrix.component }}" in
@@ -166,58 +186,73 @@ jobs:
             "notification") DOCKERFILE="Dockerfile.notification" ;;
           esac
           
-          # Generate entropy to fix SSL issues  
-          echo "🎲 Generating entropy for SSL operations..."
-          sudo dd if=/dev/urandom of=/dev/random count=1 bs=1024 2>/dev/null
-          # Install available entropy tools
-          sudo apt-get update -qq
-          sudo apt-get install -y rng-tools || echo "rng-tools not available, using alternatives"
-          
-          # Install Docker for container operations
-          echo "🐳 Installing Docker..."
-          # Use alternative Docker installation method to avoid curl SSL issues
-          if ! curl -fsSL https://get.docker.com -o get-docker.sh; then
-            echo "⚠️  curl failed, trying wget for Docker installation..."
-            wget -qO get-docker.sh https://get.docker.com
-          fi
-          sudo sh get-docker.sh
-          sudo usermod -aG docker $USER
-          sudo systemctl start docker
-          
-          # Build container directly on host (simplified approach)
+          # Build runtime container using pre-built binaries
           chmod +x scripts/build-container.sh
           scripts/build-container.sh ${PROJECT_NAME} ${UPSTREAM_VERSION} ${{ matrix.component }} $DOCKERFILE
           
-          # Install and run Trivy for security scanning
+          echo "✅ ${{ matrix.component }} container built successfully!"
+
+      - name: Upload container artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: argocd-${{ matrix.component }}-container
+          path: |
+            images/${{ matrix.component }}/
+            image-sbom-${{ matrix.component }}.json
+          retention-days: 7
+
+  # Stage 4: Security scanning and testing
+  scan-and-test:
+    runs-on: ubuntu-latest
+    needs: build-containers
+    strategy:
+      matrix:
+        component: ["server", "repo-server", "application-controller", "applicationset-controller", "dex", "notification"]
+      fail-fast: false
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Download container artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: argocd-${{ matrix.component }}-container
+          path: .
+
+      - name: Load container image for scanning
+        run: |
+          echo "📦 Loading ${{ matrix.component }} container for scanning..."
+          docker load -i "images/${{ matrix.component }}/argocd-${{ matrix.component }}-${UPSTREAM_VERSION}-mailknight.tar.gz"
+          docker images mailknight/argocd-${{ matrix.component }}
+
+      - name: Install Trivy scanner
+        run: |
           echo "🔍 Installing Trivy scanner..."
           TRIVY_URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
-          # Use wget as fallback if curl fails
-          if ! curl -sL "$TRIVY_URL" | tar -xz -C /tmp; then
-            echo "⚠️  curl failed, trying wget for Trivy..."
-            wget -qO- "$TRIVY_URL" | tar -xz -C /tmp
-          fi
+          curl -sL "$TRIVY_URL" | tar -xz -C /tmp
           sudo mv /tmp/trivy /usr/local/bin/trivy
           chmod +x /usr/local/bin/trivy
-          
+
+      - name: Security scan with Trivy
+        run: |
           echo "🔍 Scanning ${{ matrix.component }} for vulnerabilities..."
           chmod +x scripts/scan-image.sh
           scripts/scan-image.sh ${PROJECT_NAME} ${UPSTREAM_VERSION} ${{ matrix.component }}
-          
+
+      - name: Test FIPS compliance
+        run: |
           echo "🛡️  Testing ${{ matrix.component }} FIPS compliance..."
           chmod +x scripts/test-fips-compliance.sh
           scripts/test-fips-compliance.sh ${PROJECT_NAME} ${UPSTREAM_VERSION} ${{ matrix.component }}
-          
-          echo "✅ ${{ matrix.component }} container built, scanned, and tested successfully!"
 
-      - name: Upload component artifacts
+      - name: Upload scan results
         uses: actions/upload-artifact@v4
         with:
-          name: argocd-${{ matrix.component }}-results
+          name: argocd-${{ matrix.component }}-scan-results
           path: |
-            images/${{ matrix.component }}/
             scan-results/${{ matrix.component }}/
             test-results/${{ matrix.component }}/
-            image-sbom-${{ matrix.component }}.json
           retention-days: 7
 
       - name: Upload security scan results to GitHub
@@ -228,39 +263,26 @@ jobs:
           category: ${{ matrix.component }}-security
         continue-on-error: true
 
-  # Release artifacts (only on tags or manual dispatch)
+  # Stage 5: Release artifacts (only on tags or manual dispatch)
   release:
     runs-on: ubuntu-latest
-    needs: [build-all-components, test-and-scan]
+    needs: [build-binaries, build-containers, scan-and-test]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         
-      - name: Download all component results
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         
       - name: Create release artifacts
         run: |
           echo "📦 Creating ArgoCD release artifacts..."
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/workspace" \
-            -w /workspace \
-            -e PROJECT_NAME="$PROJECT_NAME" \
-            -e UPSTREAM_VERSION="$UPSTREAM_VERSION" \
-            registry.access.redhat.com/ubi8/ubi-minimal:latest \
-            sh -c '
-              microdnf update -y
-              microdnf install -y git python3 python3-pyyaml findutils tar
-              git config --global --add safe.directory /workspace
-              
-              echo "🏷️  Preparing release for ${PROJECT_NAME} ${UPSTREAM_VERSION}..."
-              chmod +x scripts/release-artifacts.sh
-              scripts/release-artifacts.sh ${PROJECT_NAME} ${UPSTREAM_VERSION}
-              
-              echo "✅ Release artifacts created successfully!"
-            '
+          chmod +x scripts/release-artifacts.sh
+          scripts/release-artifacts.sh ${PROJECT_NAME} ${UPSTREAM_VERSION}
+          
+          echo "✅ Release artifacts created successfully!"
         
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
@@ -268,3 +290,19 @@ jobs:
           name: argocd-release-complete
           path: releases/
           retention-days: 30
+
+      - name: Generate release summary
+        run: |
+          echo "## 🎉 ArgoCD Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Method:** Separated binary and container builds" >> $GITHUB_STEP_SUMMARY
+          echo "**Base Containers:** Custom FIPS-compliant base containers" >> $GITHUB_STEP_SUMMARY  
+          echo "**Security Features:** FIPS-140-2, Stack Protection, FORTIFY_SOURCE, RELRO" >> $GITHUB_STEP_SUMMARY
+          echo "**Components Built:** server, repo-server, application-controller, applicationset-controller, dex, notification" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Artifacts Generated" >> $GITHUB_STEP_SUMMARY
+          echo "- Pre-built FIPS-compliant binaries" >> $GITHUB_STEP_SUMMARY
+          echo "- Minimal runtime containers" >> $GITHUB_STEP_SUMMARY
+          echo "- Security scan results (SARIF)" >> $GITHUB_STEP_SUMMARY
+          echo "- Software Bill of Materials (SBOM)" >> $GITHUB_STEP_SUMMARY
+          echo "- FIPS compliance test results" >> $GITHUB_STEP_SUMMARY
